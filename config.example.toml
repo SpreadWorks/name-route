@@ -1,0 +1,33 @@
+[general]
+log_level = "info"                    # ERROR/WARN/INFO/DEBUG
+log_output = "stdout"                 # "file" | "stdout" | "stderr"
+# log_dir = "/var/log/name-route/"  # required when log_output = "file"
+# run_as_user = "nobody"             # privilege drop (optional)
+# run_as_group = "nogroup"
+
+[docker]
+poll_interval = 3                     # seconds
+socket = "/var/run/docker.sock"
+startup_retries = 10
+startup_retry_interval = 1            # seconds
+
+[backend]
+connect_timeout = 5                   # seconds
+connect_retries = 3
+idle_timeout = 10                     # seconds (idle after L7 analysis)
+
+[listeners.postgres]
+protocol = "postgres"
+bind = "127.0.0.1:15432"
+
+[listeners.mysql]
+protocol = "mysql"
+bind = "127.0.0.1:13306"
+
+[listeners.smtp]
+protocol = "smtp"
+bind = "127.0.0.1:10025"
+
+[smtp]
+mailbox_dir = "/var/lib/name-route/mailbox"
+max_message_size = 10485760           # 10MB

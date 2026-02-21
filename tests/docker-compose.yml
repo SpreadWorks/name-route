@@ -1,0 +1,78 @@
+services:
+  # ---- PostgreSQL ----
+  postgres_multi:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: app
+    ports:
+      - "0:5432"
+    labels:
+      name-route: '[{"protocol":"postgres","key":"app"},{"protocol":"postgres","key":"app_extra"}]'
+    volumes:
+      - pg_multi_data:/var/lib/postgresql/data
+      - ./init-multi.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d app"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  postgres_second:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: warehouse
+    ports:
+      - "0:5432"
+    labels:
+      name-route: '[{"protocol":"postgres","key":"warehouse"}]'
+    volumes:
+      - pg_second_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d warehouse"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  # ---- MySQL ----
+  mysql_multi:
+    image: mysql:8.0
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: myapp
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    labels:
+      name-route: '[{"protocol":"mysql","key":"myapp"},{"protocol":"mysql","key":"myapp_alias"}]'
+    volumes:
+      - mysql_multi_data:/var/lib/mysql
+      - ./init-mysql-multi.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mysql_second:
+    image: mysql:8.0
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: analytics
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    labels:
+      name-route: '[{"protocol":"mysql","key":"analytics"}]'
+    volumes:
+      - mysql_second_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pg_multi_data:
+  pg_second_data:
+  mysql_multi_data:
+  mysql_second_data:
