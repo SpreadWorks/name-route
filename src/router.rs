@@ -4,14 +4,15 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::protocol::ProtocolKind;
+use crate::protocol::{ProtocolKind, TlsMode};
 
 #[derive(Debug, Clone)]
 pub struct Backend {
-    pub container_id: String,
+    pub source: String,
     pub container_name: String,
     pub addrs: Vec<IpAddr>,
     pub port: u16,
+    pub tls_mode: TlsMode,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,6 +50,17 @@ impl RoutingTable {
         self.routes.is_empty()
     }
 
+    /// Remove all routes with the given source.
+    pub fn remove_by_source(&mut self, source: &str) {
+        self.routes.retain(|_, b| b.source != source);
+    }
+
+    /// Remove a specific route by protocol and key. Returns true if it existed.
+    pub fn remove(&mut self, protocol: ProtocolKind, key: &str) -> bool {
+        let normalized_key = key.to_lowercase();
+        self.routes.remove(&(protocol, normalized_key)).is_some()
+    }
+
     pub fn entries(&self) -> impl Iterator<Item = (&(ProtocolKind, String), &Backend)> {
         self.routes.iter()
     }
@@ -67,10 +79,11 @@ mod tests {
 
     fn make_backend(name: &str) -> Backend {
         Backend {
-            container_id: format!("{}_id", name),
+            source: "docker".to_string(),
             container_name: name.to_string(),
             addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 2))],
             port: 5432,
+            tls_mode: TlsMode::Passthrough,
         }
     }
 
@@ -147,10 +160,11 @@ mod tests {
             ProtocolKind::Mysql,
             "app".to_string(),
             Backend {
-                container_id: "mysql_id".to_string(),
+                source: "docker".to_string(),
                 container_name: "mysql".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 3))],
                 port: 3306,
+                tls_mode: TlsMode::Passthrough,
             },
         );
 
