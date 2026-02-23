@@ -235,13 +235,13 @@ jobs:
           # Deb packages (versioned + version-less for latest URL)
           for f in artifacts/deb-*/*.deb; do
             cp "$f" release/
-            arch=$(echo "$f" | grep -oP '(amd64|arm64)')
+            arch=$(basename "$f" | grep -oP '(amd64|arm64)' | head -1)
             cp "$f" "release/nameroute_${arch}.deb"
           done
           # RPM packages (versioned + version-less for latest URL)
           for f in artifacts/rpm-*/*.rpm; do
             cp "$f" release/
-            arch=$(echo "$f" | grep -oP '(x86_64|aarch64)')
+            arch=$(basename "$f" | grep -oP '(x86_64|aarch64)' | head -1)
             cp "$f" "release/nameroute-${arch}.rpm"
           done
           # Generate combined SHA256SUMS
