@@ -9,8 +9,91 @@ permissions:
   contents: write
 
 jobs:
+  build-binaries:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: nameroute-x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            binary_name: nameroute-aarch64-unknown-linux-gnu
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            binary_name: nameroute-x86_64-apple-darwin
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            binary_name: nameroute-aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: cp target/${{ matrix.target }}/release/nameroute ${{ matrix.binary_name }}
+
+      - name: Smoke test binary
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
+        run: ./${{ matrix.binary_name }} --help
+
+      - name: E2E smoke test binary
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
+          cat > "$TMPCONFIG" <<'EOF'
+          [general]
+          log_level = "info"
+          [listeners.http]
+          protocol = "http"
+          bind = "127.0.0.1:18080"
+          [http]
+          base_domain = "localhost"
+          [docker]
+          enabled = false
+          EOF
+          sed -i 's/^          //' "$TMPCONFIG"
+          ./${{ matrix.binary_name }} serve --config "$TMPCONFIG" &
+          PID=$!
+          sleep 2
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" http://127.0.0.1:18080/)
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -f "$TMPCONFIG"
+          if [ "$STATUS" = "404" ]; then
+            echo "PASS: HTTP no subdomain returned 404"
+          else
+            echo "FAIL: expected 404, got $STATUS"
+            exit 1
+          fi
+
+      - name: Generate SHA256
+        run: shasum -a 256 ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}
+          path: |
+            ${{ matrix.binary_name }}
+            ${{ matrix.binary_name }}.sha256
+
   build-deb:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,14 +106,198 @@ jobs:
       - name: Build deb package
         run: ./packaging/build.sh deb
 
+      - name: Test deb install
+        run: |
+          sudo dpkg -i packaging/out/*.deb
+          nameroute --help
+
+      - name: E2E smoke test (deb)
+        run: |
+          TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
+          cat > "$TMPCONFIG" <<'EOF'
+          [general]
+          log_level = "info"
+          [listeners.http]
+          protocol = "http"
+          bind = "127.0.0.1:18080"
+          [http]
+          base_domain = "localhost"
+          [docker]
+          enabled = false
+          EOF
+          sed -i 's/^          //' "$TMPCONFIG"
+          nameroute serve --config "$TMPCONFIG" &
+          PID=$!
+          sleep 2
+          # No subdomain should return 404
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" http://127.0.0.1:18080/)
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -f "$TMPCONFIG"
+          if [ "$STATUS" = "404" ]; then
+            echo "PASS: HTTP no subdomain returned 404"
+          else
+            echo "FAIL: expected 404, got $STATUS"
+            exit 1
+          fi
+
+      - name: Uninstall deb
+        run: sudo dpkg -r nameroute
+
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deb-package
+          name: deb-${{ matrix.arch }}
           path: packaging/out/*.deb
+
+  build-rpm:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install packaging dependencies
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Build rpm package
+        run: ./packaging/build.sh rpm
+
+      - name: Test rpm install
+        run: |
+          sudo apt-get install -y rpm2cpio cpio
+          mkdir -p /tmp/rpm-extract
+          cd /tmp/rpm-extract
+          rpm2cpio ${{ github.workspace }}/packaging/out/*.rpm | cpio -idmv
+          ./usr/bin/nameroute --help
+
+      - name: E2E smoke test (rpm)
+        run: |
+          TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
+          cat > "$TMPCONFIG" <<'EOF'
+          [general]
+          log_level = "info"
+          [listeners.http]
+          protocol = "http"
+          bind = "127.0.0.1:18080"
+          [http]
+          base_domain = "localhost"
+          [docker]
+          enabled = false
+          EOF
+          sed -i 's/^          //' "$TMPCONFIG"
+          /tmp/rpm-extract/usr/bin/nameroute serve --config "$TMPCONFIG" &
+          PID=$!
+          sleep 2
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" http://127.0.0.1:18080/)
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -f "$TMPCONFIG"
+          if [ "$STATUS" = "404" ]; then
+            echo "PASS: HTTP no subdomain returned 404"
+          else
+            echo "FAIL: expected 404, got $STATUS"
+            exit 1
+          fi
+
+      - name: Upload rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.arch }}
+          path: packaging/out/*.rpm
+
+  release:
+    needs: [build-binaries, build-deb, build-rpm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          # Binaries and their individual SHA256 files
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin; do
+            cp "artifacts/nameroute-${target}/nameroute-${target}" release/
+          done
+          # Deb packages (versioned + version-less for latest URL)
+          for f in artifacts/deb-*/*.deb; do
+            cp "$f" release/
+            arch=$(basename "$f" | grep -oP '(amd64|arm64)' | head -1)
+            cp "$f" "release/nameroute_${arch}.deb"
+          done
+          # RPM packages (versioned + version-less for latest URL)
+          for f in artifacts/rpm-*/*.rpm; do
+            cp "$f" release/
+            arch=$(basename "$f" | grep -oP '(x86_64|aarch64)' | head -1)
+            cp "$f" "release/nameroute-${arch}.rpm"
+          done
+          # Generate combined SHA256SUMS
+          cd release
+          shasum -a 256 * > SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: packaging/out/*.deb
+          files: release/*
           generate_release_notes: true
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download binary artifacts for SHA256
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate Homebrew formula
+        run: |
+          SHA256_MACOS_ARM64=$(awk '{print $1}' artifacts/nameroute-aarch64-apple-darwin/nameroute-aarch64-apple-darwin.sha256)
+          SHA256_MACOS_X86_64=$(awk '{print $1}' artifacts/nameroute-x86_64-apple-darwin/nameroute-x86_64-apple-darwin.sha256)
+          SHA256_LINUX_ARM64=$(awk '{print $1}' artifacts/nameroute-aarch64-unknown-linux-gnu/nameroute-aarch64-unknown-linux-gnu.sha256)
+          SHA256_LINUX_X86_64=$(awk '{print $1}' artifacts/nameroute-x86_64-unknown-linux-gnu/nameroute-x86_64-unknown-linux-gnu.sha256)
+
+          sed \
+            -e "s/%%VERSION%%/${{ steps.version.outputs.version }}/g" \
+            -e "s/%%SHA256_MACOS_ARM64%%/${SHA256_MACOS_ARM64}/g" \
+            -e "s/%%SHA256_MACOS_X86_64%%/${SHA256_MACOS_X86_64}/g" \
+            -e "s/%%SHA256_LINUX_ARM64%%/${SHA256_LINUX_ARM64}/g" \
+            -e "s/%%SHA256_LINUX_X86_64%%/${SHA256_LINUX_X86_64}/g" \
+            packaging/homebrew/nameroute.rb.tmpl > nameroute.rb
+
+      - name: Push to Homebrew tap
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/SpreadWorks/homebrew-tap.git tap
+          mkdir -p tap/Formula
+          cp nameroute.rb tap/Formula/nameroute.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/nameroute.rb
+          if git diff --cached --quiet; then
+            echo "No changes to Homebrew formula, skipping push"
+          else
+            git commit -m "Update nameroute to ${{ steps.version.outputs.version }}"
+            git push
+          fi
