@@ -28,15 +28,19 @@ cp %{_sourcedir}/config.toml %{buildroot}/etc/nameroute/config.toml
 
 %post
 mkdir -p /var/lib/name-route/mailbox
-systemctl daemon-reload
-systemctl enable --now nameroute
+if command -v systemctl &>/dev/null; then
+    systemctl daemon-reload
+    systemctl enable --now nameroute
+fi
 
 %preun
-if systemctl is-active --quiet nameroute; then
-    systemctl stop nameroute
-fi
-if systemctl is-enabled --quiet nameroute 2>/dev/null; then
-    systemctl disable nameroute
+if command -v systemctl &>/dev/null; then
+    if systemctl is-active --quiet nameroute; then
+        systemctl stop nameroute
+    fi
+    if systemctl is-enabled --quiet nameroute 2>/dev/null; then
+        systemctl disable nameroute
+    fi
 fi
 
 %postun

@@ -44,6 +44,33 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
         run: ./${{ matrix.binary_name }} --help
 
+      - name: E2E smoke test binary
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
+        run: |
+          TMPCONFIG=$(mktemp)
+          cat > "$TMPCONFIG" <<'EOF'
+          [listeners.http]
+          protocol = "http"
+          bind = "127.0.0.1:18080"
+          [http]
+          base_domain = "localhost"
+          [docker]
+          enabled = false
+          EOF
+          ./${{ matrix.binary_name }} serve --config "$TMPCONFIG" &
+          PID=$!
+          sleep 2
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" http://127.0.0.1:18080/)
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -f "$TMPCONFIG"
+          if [ "$STATUS" = "404" ]; then
+            echo "PASS: HTTP no subdomain returned 404"
+          else
+            echo "FAIL: expected 404, got $STATUS"
+            exit 1
+          fi
+
       - name: Generate SHA256
         run: shasum -a 256 ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
 
@@ -80,7 +107,36 @@ jobs:
         run: |
           sudo dpkg -i packaging/out/*.deb
           nameroute --help
-          sudo dpkg -r nameroute
+
+      - name: E2E smoke test (deb)
+        run: |
+          TMPCONFIG=$(mktemp)
+          cat > "$TMPCONFIG" <<'EOF'
+          [listeners.http]
+          protocol = "http"
+          bind = "127.0.0.1:18080"
+          [http]
+          base_domain = "localhost"
+          [docker]
+          enabled = false
+          EOF
+          nameroute serve --config "$TMPCONFIG" &
+          PID=$!
+          sleep 2
+          # No subdomain should return 404
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" http://127.0.0.1:18080/)
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -f "$TMPCONFIG"
+          if [ "$STATUS" = "404" ]; then
+            echo "PASS: HTTP no subdomain returned 404"
+          else
+            echo "FAIL: expected 404, got $STATUS"
+            exit 1
+          fi
+
+      - name: Uninstall deb
+        run: sudo dpkg -r nameroute
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
@@ -111,11 +167,37 @@ jobs:
 
       - name: Test rpm install
         run: |
-          docker run --rm -v "${{ github.workspace }}/packaging/out:/pkg" fedora:latest bash -c "
-            rpm -i /pkg/*.rpm &&
-            nameroute --help &&
-            rpm -e nameroute
-          "
+          sudo apt-get install -y rpm2cpio cpio
+          mkdir -p /tmp/rpm-extract
+          cd /tmp/rpm-extract
+          rpm2cpio ${{ github.workspace }}/packaging/out/*.rpm | cpio -idmv
+          ./usr/bin/nameroute --help
+
+      - name: E2E smoke test (rpm)
+        run: |
+          TMPCONFIG=$(mktemp)
+          cat > "$TMPCONFIG" <<'EOF'
+          [listeners.http]
+          protocol = "http"
+          bind = "127.0.0.1:18080"
+          [http]
+          base_domain = "localhost"
+          [docker]
+          enabled = false
+          EOF
+          /tmp/rpm-extract/usr/bin/nameroute serve --config "$TMPCONFIG" &
+          PID=$!
+          sleep 2
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" http://127.0.0.1:18080/)
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -f "$TMPCONFIG"
+          if [ "$STATUS" = "404" ]; then
+            echo "PASS: HTTP no subdomain returned 404"
+          else
+            echo "FAIL: expected 404, got $STATUS"
+            exit 1
+          fi
 
       - name: Upload rpm artifact
         uses: actions/upload-artifact@v4
