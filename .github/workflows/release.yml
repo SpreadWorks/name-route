@@ -40,6 +40,10 @@ jobs:
       - name: Rename binary
         run: cp target/${{ matrix.target }}/release/nameroute ${{ matrix.binary_name }}
 
+      - name: Smoke test binary
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
+        run: ./${{ matrix.binary_name }} --help
+
       - name: Generate SHA256
         run: shasum -a 256 ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
 
@@ -72,6 +76,12 @@ jobs:
       - name: Build deb package
         run: ./packaging/build.sh deb
 
+      - name: Test deb install
+        run: |
+          sudo dpkg -i packaging/out/*.deb
+          nameroute --help
+          sudo dpkg -r nameroute
+
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
@@ -98,6 +108,14 @@ jobs:
 
       - name: Build rpm package
         run: ./packaging/build.sh rpm
+
+      - name: Test rpm install
+        run: |
+          docker run --rm -v "${{ github.workspace }}/packaging/out:/pkg" fedora:latest bash -c "
+            rpm -i /pkg/*.rpm &&
+            nameroute --help &&
+            rpm -e nameroute
+          "
 
       - name: Upload rpm artifact
         uses: actions/upload-artifact@v4
