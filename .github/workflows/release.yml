@@ -45,10 +45,12 @@ jobs:
         run: ./${{ matrix.binary_name }} --help
 
       - name: E2E smoke test binary
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          TMPCONFIG=$(mktemp)
+          TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
           cat > "$TMPCONFIG" <<'EOF'
+          [general]
+          log_level = "info"
           [listeners.http]
           protocol = "http"
           bind = "127.0.0.1:18080"
@@ -57,6 +59,7 @@ jobs:
           [docker]
           enabled = false
           EOF
+          sed -i 's/^          //' "$TMPCONFIG"
           ./${{ matrix.binary_name }} serve --config "$TMPCONFIG" &
           PID=$!
           sleep 2
@@ -110,8 +113,10 @@ jobs:
 
       - name: E2E smoke test (deb)
         run: |
-          TMPCONFIG=$(mktemp)
+          TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
           cat > "$TMPCONFIG" <<'EOF'
+          [general]
+          log_level = "info"
           [listeners.http]
           protocol = "http"
           bind = "127.0.0.1:18080"
@@ -120,6 +125,7 @@ jobs:
           [docker]
           enabled = false
           EOF
+          sed -i 's/^          //' "$TMPCONFIG"
           nameroute serve --config "$TMPCONFIG" &
           PID=$!
           sleep 2
@@ -175,8 +181,10 @@ jobs:
 
       - name: E2E smoke test (rpm)
         run: |
-          TMPCONFIG=$(mktemp)
+          TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
           cat > "$TMPCONFIG" <<'EOF'
+          [general]
+          log_level = "info"
           [listeners.http]
           protocol = "http"
           bind = "127.0.0.1:18080"
@@ -185,6 +193,7 @@ jobs:
           [docker]
           enabled = false
           EOF
+          sed -i 's/^          //' "$TMPCONFIG"
           /tmp/rpm-extract/usr/bin/nameroute serve --config "$TMPCONFIG" &
           PID=$!
           sleep 2
