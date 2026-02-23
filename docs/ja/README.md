@@ -55,24 +55,24 @@ brew install SpreadWorks/tap/nameroute
 
 ```bash
 # x86_64
-curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_<VERSION>_amd64.deb
-sudo dpkg -i nameroute_<VERSION>_amd64.deb
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_amd64.deb
+sudo dpkg -i nameroute_amd64.deb
 
 # ARM64
-curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_<VERSION>_arm64.deb
-sudo dpkg -i nameroute_<VERSION>_arm64.deb
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_arm64.deb
+sudo dpkg -i nameroute_arm64.deb
 ```
 
 ### rpm (RHEL / Fedora)
 
 ```bash
 # x86_64
-curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-<VERSION>-1.x86_64.rpm
-sudo rpm -i nameroute-<VERSION>-1.x86_64.rpm
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64.rpm
+sudo rpm -i nameroute-x86_64.rpm
 
 # ARM64
-curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-<VERSION>-1.aarch64.rpm
-sudo rpm -i nameroute-<VERSION>-1.aarch64.rpm
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64.rpm
+sudo rpm -i nameroute-aarch64.rpm
 ```
 
 ### バイナリを直接ダウンロード

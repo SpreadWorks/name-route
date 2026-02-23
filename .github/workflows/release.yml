@@ -232,10 +232,18 @@ jobs:
           for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin; do
             cp "artifacts/nameroute-${target}/nameroute-${target}" release/
           done
-          # Deb packages
-          cp artifacts/deb-*/*.deb release/
-          # RPM packages
-          cp artifacts/rpm-*/*.rpm release/
+          # Deb packages (versioned + version-less for latest URL)
+          for f in artifacts/deb-*/*.deb; do
+            cp "$f" release/
+            arch=$(echo "$f" | grep -oP '(amd64|arm64)')
+            cp "$f" "release/nameroute_${arch}.deb"
+          done
+          # RPM packages (versioned + version-less for latest URL)
+          for f in artifacts/rpm-*/*.rpm; do
+            cp "$f" release/
+            arch=$(echo "$f" | grep -oP '(x86_64|aarch64)')
+            cp "$f" "release/nameroute-${arch}.rpm"
+          done
           # Generate combined SHA256SUMS
           cd release
           shasum -a 256 * > SHA256SUMS
