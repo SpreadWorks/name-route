@@ -1,3 +1,5 @@
 .claude/
 target/
 config.toml
+AGENTS.md
+CLAUDE.md
