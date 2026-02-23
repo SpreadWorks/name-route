@@ -82,7 +82,7 @@ PG_PORT=15432
 MYSQL_PORT=13306
 SMTP_PORT=10025
 HTTP_PORT=18080
-DNS_PORT=53
+DNS_PORT=15353
 POLL_INTERVAL=2
 
 MAILBOX_DIR=$(mktemp -d /tmp/nameroute-e2e-mailbox-XXXXXX)
@@ -535,8 +535,10 @@ echo "=== DNS tests ==="
 
 HAS_DIG=false
 command -v dig &>/dev/null && HAS_DIG=true
+IS_ROOT=false
+[ "$(id -u)" -eq 0 ] && IS_ROOT=true
 
-if $HAS_DIG; then
+if $HAS_DIG && $IS_ROOT; then
     # Test 1: A record for subdomain.localhost
     echo "-- DNS: A record for dev1.localhost --"
     DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" dev1.localhost A +short 2>/dev/null) || true
@@ -582,6 +584,8 @@ if $HAS_DIG; then
     else
         fail "DNS example.com: expected REFUSED, got '$(echo "$DIG_FULL" | grep status)'"
     fi
+elif ! $IS_ROOT; then
+    echo "  DNS server requires root; skipping DNS tests"
 else
     echo "  dig not found; skipping DNS tests"
 fi
