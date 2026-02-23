@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::error::{Error, Result};
-use crate::protocol::ProtocolKind;
+use crate::protocol::{ProtocolKind, TlsMode};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -16,6 +16,16 @@ pub struct Config {
     pub listeners: HashMap<String, ListenerConfig>,
     #[serde(default)]
     pub smtp: SmtpConfig,
+    #[serde(default)]
+    pub routes: Vec<StaticRoute>,
+    #[serde(default)]
+    pub http: HttpConfig,
+    #[serde(default)]
+    pub dns: DnsConfig,
+    #[serde(default)]
+    pub discovery: DiscoveryConfig,
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -32,6 +42,8 @@ pub struct GeneralConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DockerConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default = "default_poll_interval")]
     pub poll_interval: u64,
     #[serde(default = "default_docker_socket")]
@@ -56,6 +68,10 @@ pub struct BackendConfig {
 pub struct ListenerConfig {
     pub protocol: ProtocolKind,
     pub bind: String,
+    #[serde(default)]
+    pub tls_mode: Option<TlsMode>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,6 +82,50 @@ pub struct SmtpConfig {
     pub max_message_size: usize,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct StaticRoute {
+    pub protocol: ProtocolKind,
+    pub key: String,
+    pub backend: String,
+    #[serde(default)]
+    pub tls_mode: Option<TlsMode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HttpConfig {
+    #[serde(default = "default_base_domain")]
+    pub base_domain: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DnsConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_dns_bind")]
+    pub bind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscoveryConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TlsConfig {
+    #[serde(default)]
+    pub cert: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
 fn default_log_level() -> String {
     "info".to_string()
 }
@@ -99,14 +159,37 @@ fn default_mailbox_dir() -> String {
 fn default_max_message_size() -> usize {
     10_485_760
 }
-
+fn default_base_domain() -> String {
+    "localhost".to_string()
+}
+fn default_dns_bind() -> String {
+    "127.0.0.1:53".to_string()
+}
 impl Default for DockerConfig {
     fn default() -> Self {
         Self {
+            enabled: default_true(),
             poll_interval: default_poll_interval(),
             socket: default_docker_socket(),
             startup_retries: default_startup_retries(),
             startup_retry_interval: default_startup_retry_interval(),
+        }
+    }
+}
+
+impl Default for HttpConfig {
+    fn default() -> Self {
+        Self {
+            base_domain: default_base_domain(),
+        }
+    }
+}
+
+impl Default for DnsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            bind: default_dns_bind(),
         }
     }
 }
@@ -121,11 +204,94 @@ impl Default for BackendConfig {
     }
 }
 
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            log_level: default_log_level(),
+            log_output: default_log_output(),
+            log_dir: None,
+            run_as_user: None,
+            run_as_group: None,
+        }
+    }
+}
+
+impl Default for DiscoveryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            paths: Vec::new(),
+            poll_interval: default_poll_interval(),
+        }
+    }
+}
+
 impl Default for SmtpConfig {
     fn default() -> Self {
         Self {
             mailbox_dir: default_mailbox_dir(),
             max_message_size: default_max_message_size(),
+        }
+    }
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            cert: None,
+            key: None,
+        }
+    }
+}
+
+fn default_listeners() -> HashMap<String, ListenerConfig> {
+    let mut m = HashMap::new();
+    m.insert("postgres".to_string(), ListenerConfig {
+        protocol: ProtocolKind::Postgres,
+        bind: "127.0.0.1:15432".to_string(),
+        tls_mode: None,
+        enabled: true,
+    });
+    m.insert("mysql".to_string(), ListenerConfig {
+        protocol: ProtocolKind::Mysql,
+        bind: "127.0.0.1:13306".to_string(),
+        tls_mode: None,
+        enabled: true,
+    });
+    m.insert("http".to_string(), ListenerConfig {
+        protocol: ProtocolKind::Http,
+        bind: "127.0.0.1:8080".to_string(),
+        tls_mode: None,
+        enabled: true,
+    });
+    m.insert("smtp".to_string(), ListenerConfig {
+        protocol: ProtocolKind::Smtp,
+        bind: "127.0.0.1:10025".to_string(),
+        tls_mode: None,
+        enabled: true,
+    });
+    m.insert("https".to_string(), ListenerConfig {
+        protocol: ProtocolKind::Https,
+        bind: "127.0.0.1:8443".to_string(),
+        tls_mode: None,
+        enabled: true,
+    });
+    m
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            general: GeneralConfig::default(),
+            docker: DockerConfig::default(),
+            backend: BackendConfig::default(),
+            listeners: default_listeners(),
+            smtp: SmtpConfig::default(),
+            routes: Vec::new(),
+            http: HttpConfig::default(),
+            dns: DnsConfig::default(),
+            discovery: DiscoveryConfig::default(),
+            tls: TlsConfig::default(),
         }
     }
 }
@@ -153,6 +319,34 @@ impl Config {
                     name
                 )));
             }
+            if listener.tls_mode.is_some() && listener.protocol != ProtocolKind::Https {
+                return Err(Error::Config(format!(
+                    "listener '{}': tls_mode can only be set on protocol = \"https\"",
+                    name
+                )));
+            }
+        }
+        for route in &self.routes {
+            if route.tls_mode.is_some() && route.protocol != ProtocolKind::Https {
+                return Err(Error::Config(format!(
+                    "route '{}': tls_mode can only be set on protocol = \"https\"",
+                    route.key
+                )));
+            }
+        }
+        let needs_terminate = self.listeners.values().any(|lc| {
+            lc.protocol == ProtocolKind::Https
+                && lc.enabled
+                && lc.tls_mode == Some(TlsMode::Terminate)
+        }) || self.routes.iter().any(|r| {
+            r.protocol == ProtocolKind::Https && r.tls_mode == Some(TlsMode::Terminate)
+        });
+        if needs_terminate && (self.tls.cert.is_none() || self.tls.key.is_none()) {
+            return Err(Error::Config(
+                "TLS terminate mode requires [tls] cert and key. \
+                 Generate certs with: mkcert -key-file key.pem -cert-file cert.pem \"*.localhost\""
+                    .to_string(),
+            ));
         }
         Ok(())
     }
@@ -169,10 +363,12 @@ mod tests {
         assert_eq!(config.general.log_level, "info");
         assert_eq!(config.docker.poll_interval, 3);
         assert_eq!(config.backend.connect_timeout, 5);
-        assert_eq!(config.listeners.len(), 3);
+        assert_eq!(config.listeners.len(), 5);
         assert!(config.listeners.contains_key("postgres"));
         assert!(config.listeners.contains_key("mysql"));
+        assert!(config.listeners.contains_key("http"));
         assert!(config.listeners.contains_key("smtp"));
+        assert!(config.listeners.contains_key("https"));
         assert_eq!(config.smtp.max_message_size, 10_485_760);
     }
 

@@ -6,6 +6,7 @@ log_output = "stdout"                 # "file" | "stdout" | "stderr"
 # run_as_group = "nogroup"
 
 [docker]
+enabled = true                        # false to disable Docker polling
 poll_interval = 3                     # seconds
 socket = "/var/run/docker.sock"
 startup_retries = 10
@@ -16,6 +17,7 @@ connect_timeout = 5                   # seconds
 connect_retries = 3
 idle_timeout = 10                     # seconds (idle after L7 analysis)
 
+# --- Listeners ---
 [listeners.postgres]
 protocol = "postgres"
 bind = "127.0.0.1:15432"
@@ -24,10 +26,71 @@ bind = "127.0.0.1:15432"
 protocol = "mysql"
 bind = "127.0.0.1:13306"
 
+[listeners.http]
+protocol = "http"
+bind = "127.0.0.1:8080"
+
 [listeners.smtp]
 protocol = "smtp"
 bind = "127.0.0.1:10025"
 
+[listeners.https]
+protocol = "https"
+bind = "127.0.0.1:8443"
+# tls_mode = "passthrough"            # default (forward TLS to backend as-is)
+# enabled = false                     # uncomment to disable HTTPS listener
+
+# --- HTTP settings ---
+[http]
+base_domain = "localhost"
+
+# --- DNS server ---
+[dns]
+enabled = true                        # false to disable DNS server
+bind = "127.0.0.1:53"
+
+# --- Discovery ---
+# [discovery]
+# enabled = true                      # false to disable discovery
+# paths = ["~/workspace"]             # parent directories to scan
+# poll_interval = 3                   # seconds
+
+# --- TLS settings (for terminate mode) ---
+# Only needed when using tls_mode = "terminate".
+# Generate certs with mkcert:
+#   mkcert -install
+#   mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
+#
+# [tls]
+# cert = "cert.pem"
+# key = "key.pem"
+
+# --- SMTP settings ---
 [smtp]
 mailbox_dir = "/var/lib/name-route/mailbox"
 max_message_size = 10485760           # 10MB
+
+# --- Static routes ---
+# [[routes]]
+# protocol = "http"
+# key = "dev1"
+# backend = "127.0.0.1:3000"
+#
+# [[routes]]
+# protocol = "postgres"
+# key = "mydb"
+# backend = "127.0.0.1:5432"
+#
+# --- HTTPS route examples ---
+# Passthrough (default): TLS is forwarded to backend as-is
+# [[routes]]
+# protocol = "https"
+# key = "myapp"
+# backend = "127.0.0.1:3443"
+#
+# Terminate: name-route terminates TLS, backend receives plain HTTP
+# [[routes]]
+# protocol = "https"
+# key = "api"
+# backend = "127.0.0.1:3000"
+# tls_mode = "terminate"
