@@ -1,0 +1,12 @@
+[Unit]
+Description=nameroute - Local TCP L7 Router
+After=network.target docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nameroute serve --config /etc/nameroute/config.toml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+
+case "$1" in
+    purge)
+        rm -rf /var/lib/name-route
+        ;;
+esac

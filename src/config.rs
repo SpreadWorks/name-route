@@ -32,10 +32,6 @@ pub struct Config {
 pub struct GeneralConfig {
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    #[serde(default = "default_log_output")]
-    pub log_output: String,
-    #[serde(default)]
-    pub log_dir: Option<String>,
     pub run_as_user: Option<String>,
     pub run_as_group: Option<String>,
 }
@@ -129,9 +125,6 @@ fn default_true() -> bool {
 fn default_log_level() -> String {
     "info".to_string()
 }
-fn default_log_output() -> String {
-    "stdout".to_string()
-}
 fn default_poll_interval() -> u64 {
     3
 }
@@ -208,8 +201,6 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             log_level: default_log_level(),
-            log_output: default_log_output(),
-            log_dir: None,
             run_as_user: None,
             run_as_group: None,
         }
@@ -307,11 +298,6 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.general.log_output == "file" && self.general.log_dir.is_none() {
-            return Err(Error::Config(
-                "log_dir must be set when log_output is 'file'".to_string(),
-            ));
-        }
         for (name, listener) in &self.listeners {
             if listener.bind.is_empty() {
                 return Err(Error::Config(format!(
@@ -384,14 +370,4 @@ log_level = "debug"
         assert_eq!(config.smtp.max_message_size, 10_485_760);
     }
 
-    #[test]
-    fn test_validate_log_dir_required() {
-        let content = r#"
-[general]
-log_level = "info"
-log_output = "file"
-"#;
-        let config: Config = toml::from_str(content).unwrap();
-        assert!(config.validate().is_err());
-    }
 }

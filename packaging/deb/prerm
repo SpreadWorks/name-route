@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -e
+
+if systemctl is-active --quiet nameroute; then
+    systemctl stop nameroute
+fi
+
+if systemctl is-enabled --quiet nameroute 2>/dev/null; then
+    systemctl disable nameroute
+fi

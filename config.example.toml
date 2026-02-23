@@ -1,9 +1,10 @@
 [general]
 log_level = "info"                    # ERROR/WARN/INFO/DEBUG
-log_output = "stdout"                 # "file" | "stdout" | "stderr"
-# log_dir = "/var/log/name-route/"  # required when log_output = "file"
-# run_as_user = "nobody"             # privilege drop (optional)
-# run_as_group = "nogroup"
+# Privilege drop (optional)
+# After binding to privileged ports, drop privileges to the specified user/group.
+# Note: DNS server and /etc/hosts management will be disabled after dropping privileges.
+# run_as_user = "nameroute"
+# run_as_group = "nameroute"
 
 [docker]
 enabled = true                        # false to disable Docker polling

@@ -3,3 +3,4 @@ target/
 config.toml
 AGENTS.md
 CLAUDE.md
+packaging/out/

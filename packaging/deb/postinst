@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+
+# Create data directories
+mkdir -p /var/lib/name-route/mailbox
+
+systemctl daemon-reload
+systemctl enable --now nameroute
