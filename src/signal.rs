@@ -29,6 +29,10 @@ pub async fn signal_handler(
                 break;
             }
             _ = sighup.recv() => {
+                if config_path.is_empty() {
+                    warn!("Received SIGHUP but no config file specified, ignoring");
+                    continue;
+                }
                 info!("Received SIGHUP, reloading configuration");
                 match Config::load(Path::new(&config_path)) {
                     Ok(new_config) => {

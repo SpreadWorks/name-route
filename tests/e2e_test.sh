@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 NAMEROUTE_PID=""
+ECHO_HTTP_PID=""
 TMPCONFIG=""
 MAILBOX_DIR=""
 NAMEROUTE_LOG=""
@@ -11,6 +12,10 @@ COMPOSE_PROJECT="nameroute-e2e-$$"
 
 cleanup() {
     echo "--- cleanup ---"
+    if [ -n "$ECHO_HTTP_PID" ] && kill -0 "$ECHO_HTTP_PID" 2>/dev/null; then
+        kill "$ECHO_HTTP_PID" 2>/dev/null || true
+        wait "$ECHO_HTTP_PID" 2>/dev/null || true
+    fi
     if [ -n "$NAMEROUTE_PID" ] && kill -0 "$NAMEROUTE_PID" 2>/dev/null; then
         kill "$NAMEROUTE_PID" 2>/dev/null || true
         wait "$NAMEROUTE_PID" 2>/dev/null || true
@@ -39,7 +44,7 @@ docker compose -p "$COMPOSE_PROJECT" -f "$SCRIPT_DIR/docker-compose.yml" up -d
 
 # ---- 3. Wait for all containers to be healthy ----
 echo "=== Waiting for all containers healthcheck ==="
-SERVICES="postgres_multi postgres_second mysql_multi mysql_second"
+SERVICES="postgres_multi postgres_second mysql_multi mysql_second httpd_web"
 for svc in $SERVICES; do
     echo "  Waiting for $svc ..."
     for i in $(seq 1 60); do
@@ -59,10 +64,25 @@ for svc in $SERVICES; do
     done
 done
 
-# ---- 4. Generate temporary config ----
+# ---- 4. Start echo-http-server for static route testing ----
+ECHO_HTTP_PORT=19876
+ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/echo-http-server"
+echo "=== Starting echo-http-server on port $ECHO_HTTP_PORT ==="
+"$ECHO_HTTP_BIN" --port "$ECHO_HTTP_PORT" --body "static-route-ok" &
+ECHO_HTTP_PID=$!
+sleep 0.5
+
+if ! kill -0 "$ECHO_HTTP_PID" 2>/dev/null; then
+    echo "ERROR: echo-http-server exited immediately"
+    exit 1
+fi
+
+# ---- 5. Generate temporary config ----
 PG_PORT=15432
 MYSQL_PORT=13306
 SMTP_PORT=10025
+HTTP_PORT=18080
+DNS_PORT=53
 POLL_INTERVAL=2
 
 MAILBOX_DIR=$(mktemp -d /tmp/nameroute-e2e-mailbox-XXXXXX)
@@ -87,15 +107,30 @@ bind = "127.0.0.1:$PG_PORT"
 protocol = "mysql"
 bind = "127.0.0.1:$MYSQL_PORT"
 
+[listeners.http]
+protocol = "http"
+bind = "127.0.0.1:$HTTP_PORT"
+
 [listeners.smtp]
 protocol = "smtp"
 bind = "127.0.0.1:$SMTP_PORT"
 
+[http]
+base_domain = "localhost"
+
+[dns]
+bind = "127.0.0.1:$DNS_PORT"
+
 [smtp]
 mailbox_dir = "$MAILBOX_DIR"
+
+[[routes]]
+protocol = "http"
+key = "static1"
+backend = "127.0.0.1:$ECHO_HTTP_PORT"
 EOF
 
-# ---- 5. Start nameroute ----
+# ---- 6. Start nameroute ----
 echo "=== Starting nameroute ==="
 NAMEROUTE_LOG=$(mktemp /tmp/nameroute-e2e-log-XXXXXX.txt)
 "$NAMEROUTE_BIN" --config "$TMPCONFIG" 2>"$NAMEROUTE_LOG" &
@@ -107,7 +142,7 @@ if ! kill -0 "$NAMEROUTE_PID" 2>/dev/null; then
     exit 1
 fi
 
-# ---- 6. Wait for Docker polling ----
+# ---- 7. Wait for Docker polling ----
 echo "=== Waiting for Docker poll (${POLL_INTERVAL}s + 1s) ==="
 sleep $((POLL_INTERVAL + 1))
 
@@ -432,6 +467,123 @@ if echo "$QUIT_OUT" | grep -q "^221"; then
     pass "SMTP QUIT: got 221"
 else
     fail "SMTP QUIT: got '$QUIT_OUT'"
+fi
+
+# ======================================================================
+#  HTTP tests
+# ======================================================================
+echo ""
+echo "=== HTTP tests ==="
+
+HAS_CURL=false
+command -v curl &>/dev/null && HAS_CURL=true
+
+if $HAS_CURL; then
+    # Test 1: Docker Apache via Docker label discovery (key=web)
+    echo "-- HTTP: Docker Apache key=web --"
+    RESULT=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: web.localhost" "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null) || true
+    if [ "$RESULT" = "200" ]; then
+        pass "HTTP Docker Apache key=web: status 200"
+    else
+        fail "HTTP Docker Apache key=web: status '$RESULT'"
+    fi
+
+    # Test 2: Verify Apache response contains expected content
+    echo "-- HTTP: Docker Apache response body --"
+    BODY=$(curl -s -H "Host: web.localhost" "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null) || true
+    if echo "$BODY" | grep -qi "it works\|apache\|html"; then
+        pass "HTTP Docker Apache: body contains expected content"
+    else
+        fail "HTTP Docker Apache: body was '$(echo "$BODY" | head -1)'"
+    fi
+
+    # Test 3: Static route via echo-http-server (key=static1)
+    echo "-- HTTP: Static route key=static1 --"
+    RESULT=$(curl -s -H "Host: static1.localhost" "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null) || true
+    if [ "$RESULT" = "static-route-ok" ]; then
+        pass "HTTP static route key=static1: body correct"
+    else
+        fail "HTTP static route key=static1: got '$RESULT'"
+    fi
+
+    # Test 4: Unknown key returns 502
+    echo "-- HTTP: Unknown key --"
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: nosuchkey.localhost" "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null) || true
+    if [ "$STATUS" = "502" ]; then
+        pass "HTTP unknown key: status 502"
+    else
+        fail "HTTP unknown key: status '$STATUS'"
+    fi
+
+    # Test 5: No subdomain returns 404
+    echo "-- HTTP: No subdomain --"
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: localhost" "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null) || true
+    if [ "$STATUS" = "404" ]; then
+        pass "HTTP no subdomain: status 404"
+    else
+        fail "HTTP no subdomain: status '$STATUS'"
+    fi
+else
+    echo "  curl not found; skipping HTTP tests"
+fi
+
+# ======================================================================
+#  DNS tests
+# ======================================================================
+echo ""
+echo "=== DNS tests ==="
+
+HAS_DIG=false
+command -v dig &>/dev/null && HAS_DIG=true
+
+if $HAS_DIG; then
+    # Test 1: A record for subdomain.localhost
+    echo "-- DNS: A record for dev1.localhost --"
+    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" dev1.localhost A +short 2>/dev/null) || true
+    if [ "$DIG_OUT" = "127.0.0.1" ]; then
+        pass "DNS A record dev1.localhost: 127.0.0.1"
+    else
+        fail "DNS A record dev1.localhost: got '$DIG_OUT'"
+    fi
+
+    # Test 2: A record for arbitrary subdomain
+    echo "-- DNS: A record for anything.localhost --"
+    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" anything.localhost A +short 2>/dev/null) || true
+    if [ "$DIG_OUT" = "127.0.0.1" ]; then
+        pass "DNS A record anything.localhost: 127.0.0.1"
+    else
+        fail "DNS A record anything.localhost: got '$DIG_OUT'"
+    fi
+
+    # Test 3: A record for base domain itself
+    echo "-- DNS: A record for localhost --"
+    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" localhost A +short 2>/dev/null) || true
+    if [ "$DIG_OUT" = "127.0.0.1" ]; then
+        pass "DNS A record localhost: 127.0.0.1"
+    else
+        fail "DNS A record localhost: got '$DIG_OUT'"
+    fi
+
+    # Test 4: AAAA record
+    echo "-- DNS: AAAA record for dev1.localhost --"
+    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" dev1.localhost AAAA +short 2>/dev/null) || true
+    if [ "$DIG_OUT" = "::1" ]; then
+        pass "DNS AAAA record dev1.localhost: ::1"
+    else
+        fail "DNS AAAA record dev1.localhost: got '$DIG_OUT'"
+    fi
+
+    # Test 5: Non-matching domain returns REFUSED
+    echo "-- DNS: REFUSED for example.com --"
+    DIG_STATUS=$(dig @127.0.0.1 -p "$DNS_PORT" example.com A +short 2>&1) || true
+    DIG_FULL=$(dig @127.0.0.1 -p "$DNS_PORT" example.com A 2>/dev/null) || true
+    if echo "$DIG_FULL" | grep -q "REFUSED"; then
+        pass "DNS example.com: REFUSED"
+    else
+        fail "DNS example.com: expected REFUSED, got '$(echo "$DIG_FULL" | grep status)'"
+    fi
+else
+    echo "  dig not found; skipping DNS tests"
 fi
 
 # ======================================================================

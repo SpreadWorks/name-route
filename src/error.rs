@@ -19,6 +19,9 @@ pub enum Error {
 
     #[error("Connection error: {0}")]
     Connection(String),
+
+    #[error("Control socket error: {0}")]
+    Control(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

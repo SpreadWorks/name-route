@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::protocol::ProtocolKind;
+use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, RoutingTable, SharedRoutingTable};
 
 const LABEL_KEY: &str = "name-route";
@@ -21,6 +21,8 @@ struct RouteLabel {
     key: String,
     #[serde(default)]
     port: Option<u16>,
+    #[serde(default)]
+    tls_mode: Option<TlsMode>,
 }
 
 /// Connect to Docker with retries.
@@ -130,10 +132,11 @@ pub async fn poll_once(docker: &Docker) -> crate::error::Result<RoutingTable> {
             let port = route.port.unwrap_or_else(|| route.protocol.default_port());
 
             let backend = Backend {
-                container_id: container_id.clone(),
+                source: "docker".to_string(),
                 container_name: container_name.clone(),
                 addrs: addrs.clone(),
                 port,
+                tls_mode: route.tls_mode.unwrap_or(TlsMode::Passthrough),
             };
 
             let collision = table.insert(route.protocol, route.key.clone(), backend);
@@ -200,9 +203,24 @@ pub async fn polling_loop(
             }
             _ = interval.tick() => {
                 match poll_once(&docker).await {
-                    Ok(new_table) => {
-                        let count = new_table.len();
-                        *routing_table.write().await = new_table;
+                    Ok(docker_table) => {
+                        let mut table = routing_table.write().await;
+                        // Remove old Docker routes
+                        table.remove_by_source("docker");
+                        // Insert new Docker routes, skipping if static or discovery already owns the key
+                        for ((protocol, key), backend) in docker_table.entries() {
+                            if let Some(existing) = table.lookup(*protocol, key) {
+                                if existing.source == "static" || existing.source == "discovery" {
+                                    continue;
+                                }
+                            }
+                            table.insert(*protocol, key.clone(), backend.clone());
+                        }
+                        let count = table.len();
+                        // Update /etc/hosts with current HTTP routes
+                        let base_domain = config_rx.borrow().http.base_domain.clone();
+                        crate::hosts::sync(&table, &base_domain);
+                        drop(table);
                         debug!(routes = count, "Routing table updated");
                     }
                     Err(e) => {
@@ -273,5 +291,6 @@ mod tests {
         assert_eq!(ProtocolKind::Postgres.default_port(), 5432);
         assert_eq!(ProtocolKind::Mysql.default_port(), 3306);
         assert_eq!(ProtocolKind::Smtp.default_port(), 25);
+        assert_eq!(ProtocolKind::Http.default_port(), 80);
     }
 }
