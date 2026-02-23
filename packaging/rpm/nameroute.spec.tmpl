@@ -1,0 +1,45 @@
+Name:           nameroute
+Version:        %%VERSION%%
+Release:        1%{?dist}
+Summary:        Local TCP L7 Router
+License:        MIT
+URL:            https://github.com/SpreadWorks/name-route
+
+%description
+nameroute is a local TCP Layer 7 router that automatically
+discovers Docker containers and routes HTTP/HTTPS/PostgreSQL/MySQL/SMTP
+traffic based on names.
+
+%install
+mkdir -p %{buildroot}/usr/bin
+mkdir -p %{buildroot}/usr/lib/systemd/system
+mkdir -p %{buildroot}/etc/nameroute
+
+cp %{_sourcedir}/nameroute %{buildroot}/usr/bin/nameroute
+chmod 0755 %{buildroot}/usr/bin/nameroute
+
+cp %{_sourcedir}/nameroute.service %{buildroot}/usr/lib/systemd/system/nameroute.service
+cp %{_sourcedir}/config.toml %{buildroot}/etc/nameroute/config.toml
+
+%files
+%attr(0755, root, root) /usr/bin/nameroute
+/usr/lib/systemd/system/nameroute.service
+%config(noreplace) /etc/nameroute/config.toml
+
+%post
+mkdir -p /var/lib/name-route/mailbox
+systemctl daemon-reload
+systemctl enable --now nameroute
+
+%preun
+if systemctl is-active --quiet nameroute; then
+    systemctl stop nameroute
+fi
+if systemctl is-enabled --quiet nameroute 2>/dev/null; then
+    systemctl disable nameroute
+fi
+
+%postun
+if [ "$1" -eq 0 ]; then
+    rm -rf /var/lib/name-route
+fi

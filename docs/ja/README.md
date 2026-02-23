@@ -45,31 +45,61 @@ name-route は、ポート番号の代わりに「名前」でアクセスでき
 
 ## Install
 
-### ソースからビルド
+### Homebrew (macOS / Linux)
 
 ```bash
-cargo install --git https://github.com/spreadworks/name-route
+brew install SpreadWorks/tap/nameroute
+```
+
+### deb (Debian / Ubuntu)
+
+```bash
+# x86_64
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_<VERSION>_amd64.deb
+sudo dpkg -i nameroute_<VERSION>_amd64.deb
+
+# ARM64
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_<VERSION>_arm64.deb
+sudo dpkg -i nameroute_<VERSION>_arm64.deb
+```
+
+### rpm (RHEL / Fedora)
+
+```bash
+# x86_64
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-<VERSION>-1.x86_64.rpm
+sudo rpm -i nameroute-<VERSION>-1.x86_64.rpm
+
+# ARM64
+curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-<VERSION>-1.aarch64.rpm
+sudo rpm -i nameroute-<VERSION>-1.aarch64.rpm
 ```
 
 ### バイナリを直接ダウンロード
 
 ```bash
 # macOS (Apple Silicon)
-curl -L https://github.com/spreadworks/name-route/releases/latest/download/nameroute-aarch64-apple-darwin -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-apple-darwin -o nameroute
 
 # macOS (Intel)
-curl -L https://github.com/spreadworks/name-route/releases/latest/download/nameroute-x86_64-apple-darwin -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-apple-darwin -o nameroute
 
 # Linux (x86_64)
-curl -L https://github.com/spreadworks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
 
 # Linux (ARM64)
-curl -L https://github.com/spreadworks/name-route/releases/latest/download/nameroute-aarch64-unknown-linux-gnu -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-unknown-linux-gnu -o nameroute
 ```
 
 ```bash
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
+```
+
+### ソースからビルド
+
+```bash
+cargo install --git https://github.com/SpreadWorks/name-route
 ```
 
 ## Quick Start
