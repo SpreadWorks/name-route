@@ -1,0 +1,237 @@
+use std::net::SocketAddr;
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, copy_bidirectional};
+use tokio::net::TcpStream;
+use tokio::sync::watch;
+use tracing::{debug, info};
+
+use crate::config::Config;
+use crate::error::Result;
+use crate::protocol::ProtocolHandler;
+use crate::protocol::ProtocolKind;
+use crate::proxy;
+use crate::router::SharedRoutingTable;
+
+const MAX_HEADER_SIZE: usize = 8192;
+
+pub struct HttpHandler {
+    routing_table: SharedRoutingTable,
+    config_rx: watch::Receiver<Config>,
+}
+
+impl HttpHandler {
+    pub fn new(routing_table: SharedRoutingTable, config_rx: watch::Receiver<Config>) -> Self {
+        Self {
+            routing_table,
+            config_rx,
+        }
+    }
+}
+
+impl ProtocolHandler for HttpHandler {
+    async fn handle_connection(&self, client: TcpStream, peer: SocketAddr) -> Result<()> {
+        handle_http_stream(client, peer, &self.routing_table, &self.config_rx, ProtocolKind::Http)
+            .await
+    }
+}
+
+/// HTTP stream handler that works with any stream type (TcpStream, TlsStream, etc.)
+/// `protocol_kind` determines which protocol to use for routing table lookup
+/// (Http for plain HTTP, Https for TLS-terminated HTTPS).
+pub(crate) async fn handle_http_stream<S>(
+    mut client: S,
+    peer: SocketAddr,
+    routing_table: &SharedRoutingTable,
+    config_rx: &watch::Receiver<Config>,
+    protocol_kind: ProtocolKind,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    debug!(peer = %peer, "New HTTP connection");
+
+    let config = config_rx.borrow().clone();
+    let base_domain = &config.http.base_domain;
+
+    // Read request line + headers into buffer until \r\n\r\n
+    let mut buf = Vec::with_capacity(4096);
+    let mut tmp = [0u8; 1];
+    let header_end;
+
+    loop {
+        let n = client.read(&mut tmp).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        buf.push(tmp[0]);
+
+        if buf.len() > MAX_HEADER_SIZE {
+            send_response(&mut client, 431, "Request Header Fields Too Large", "Headers too large").await?;
+            return Ok(());
+        }
+
+        // Check for \r\n\r\n at end of buffer
+        if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+            header_end = buf.len();
+            break;
+        }
+    }
+
+    // Parse Host header from the buffer
+    let header_str = String::from_utf8_lossy(&buf[..header_end]);
+    let host_value = header_str
+        .lines()
+        .find(|line| {
+            let lower = line.to_lowercase();
+            lower.starts_with("host:")
+        })
+        .and_then(|line| line.split_once(':').map(|(_, v)| v.trim().to_string()));
+
+    let host = match &host_value {
+        Some(h) => h.as_str(),
+        None => {
+            send_response(&mut client, 400, "Bad Request", "Missing Host header").await?;
+            return Ok(());
+        }
+    };
+
+    // Extract subdomain from Host header
+    let host_no_port = host.split(':').next().unwrap_or(host);
+    let key = extract_subdomain(host_no_port, base_domain);
+
+    let key = match key {
+        Some(k) if !k.is_empty() => k,
+        _ => {
+            send_response(&mut client, 404, "Not Found", "No subdomain specified").await?;
+            return Ok(());
+        }
+    };
+
+    debug!(peer = %peer, key = %key, host = %host, "HTTP routing lookup");
+
+    // Lookup in routing table
+    let table = routing_table.read().await;
+    let backend = table.lookup(protocol_kind, &key).cloned();
+    drop(table);
+
+    let backend = match backend {
+        Some(b) => b,
+        None => {
+            info!(peer = %peer, key = %key, "HTTP backend not found");
+            send_response(
+                &mut client,
+                502,
+                "Bad Gateway",
+                &format!("No backend for '{}'", key),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+
+    info!(
+        peer = %peer,
+        key = %key,
+        backend = %backend.container_name,
+        "Routing HTTP connection"
+    );
+
+    // Connect to backend and relay
+    // Send the already-read headers, then bidirectional copy for the rest
+    let mut backend_stream = proxy::connect_backend(&backend, &config.backend).await?;
+    backend_stream.write_all(&buf).await?;
+
+    match copy_bidirectional(&mut client, &mut backend_stream).await {
+        Ok((c2b, b2c)) => {
+            debug!(
+                peer = %peer,
+                client_to_backend = c2b,
+                backend_to_client = b2c,
+                "HTTP connection closed"
+            );
+        }
+        Err(e) => {
+            debug!(peer = %peer, error = %e, "HTTP relay ended");
+        }
+    }
+
+    Ok(())
+}
+
+/// Extract subdomain from host given a base domain.
+/// "dev1.localhost" with base "localhost" → Some("dev1")
+/// "sub.dev1.localhost" with base "localhost" → Some("sub.dev1")
+/// "localhost" with base "localhost" → None
+pub(crate) fn extract_subdomain(host: &str, base_domain: &str) -> Option<String> {
+    let host_lower = host.to_lowercase();
+    let base_lower = base_domain.to_lowercase();
+
+    if host_lower == base_lower {
+        return None;
+    }
+
+    let suffix = format!(".{}", base_lower);
+    if host_lower.ends_with(&suffix) {
+        let sub = &host_lower[..host_lower.len() - suffix.len()];
+        if sub.is_empty() {
+            None
+        } else {
+            Some(sub.to_string())
+        }
+    } else {
+        None
+    }
+}
+
+async fn send_response<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    status: u16,
+    reason: &str,
+    body: &str,
+) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
+        status,
+        reason,
+        body.len(),
+        body
+    );
+    stream.write_all(response.as_bytes()).await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_subdomain() {
+        assert_eq!(
+            extract_subdomain("dev1.localhost", "localhost"),
+            Some("dev1".to_string())
+        );
+        assert_eq!(
+            extract_subdomain("api1.localhost", "localhost"),
+            Some("api1".to_string())
+        );
+        assert_eq!(
+            extract_subdomain("sub.dev1.localhost", "localhost"),
+            Some("sub.dev1".to_string())
+        );
+        assert_eq!(extract_subdomain("localhost", "localhost"), None);
+        assert_eq!(extract_subdomain("example.com", "localhost"), None);
+        assert_eq!(
+            extract_subdomain("DEV1.LOCALHOST", "localhost"),
+            Some("dev1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_subdomain_custom_domain() {
+        assert_eq!(
+            extract_subdomain("app.mysite.local", "mysite.local"),
+            Some("app".to_string())
+        );
+        assert_eq!(extract_subdomain("mysite.local", "mysite.local"), None);
+    }
+}
