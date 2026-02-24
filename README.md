@@ -343,35 +343,18 @@ See [config.example.toml](config.example.toml) for the full reference.
 
 ## Tested with
 
-The following client libraries and server versions have been verified through integration tests. This is not a support commitment — just a record of what has been tested.
+All combinations of the client libraries below and server versions (PostgreSQL 14–17, MySQL 5.7–8.4) have been verified through integration tests.
 
-**PostgreSQL**
-
-| Language | Library | 14 | 15 | 16 | 17 |
-|----------|---------|:--:|:--:|:--:|:--:|
-| C | libpq | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Go | pgx | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Java | JDBC (postgresql) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Node.js | pg | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| PHP | PDO pgsql | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Python | psycopg2 | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Python | psycopg (v3) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Ruby | pg | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Rust | tokio-postgres | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-
-**MySQL**
-
-| Language | Library | 5.7 | 8.0 | 8.4 |
-|----------|---------|:---:|:---:|:---:|
-| C | libmysqlclient | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Go | go-sql-driver/mysql | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Java | mysql-connector-j | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Node.js | mysql2 | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| PHP | PDO mysql | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Python | PyMySQL | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Python | mysqlclient | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Ruby | mysql2 | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Rust | mysql_async | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Language | PostgreSQL | MySQL |
+|----------|------------|-------|
+| C | libpq | libmysqlclient |
+| Go | pgx | go-sql-driver/mysql |
+| Java | JDBC (postgresql) | mysql-connector-j |
+| Node.js | pg | mysql2 |
+| PHP | PDO pgsql | PDO mysql |
+| Python | psycopg2, psycopg (v3) | PyMySQL, mysqlclient |
+| Ruby | pg | mysql2 |
+| Rust | tokio-postgres | mysql_async |
 
 
 ## Docs
