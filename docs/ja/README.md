@@ -140,25 +140,7 @@ cargo install --git https://github.com/SpreadWorks/name-route
 sudo nameroute
 ```
 
-設定ファイルなしで、全プロトコルのリスナーが起動します。`sudo` なしでも動作します（詳細は下記）。
-
-### 2. Register a route
-
-```bash
-nameroute run http myapp -- next dev
-```
-
-空きポートの自動割り当てからルート登録まで全自動。Docker を使う場合は、ラベルを付けるだけで[自動登録](docker.md)もできます。他にも `add` コマンドや設定ファイルによる登録方法があります（詳細は下記）。
-
-### 3. Access by name
-
-```bash
-curl http://myapp.localhost:8080
-```
-
-HTTP 以外にも PostgreSQL、MySQL、SMTP に名前でアクセスできます（詳細は下記）。
-
----
+設定ファイルなしで、全プロトコルのリスナーが起動します。`sudo` なしでも動作します。
 
 <details>
 <summary>sudo なしでの利用について</summary>
@@ -169,8 +151,16 @@ HTTP 以外にも PostgreSQL、MySQL、SMTP に名前でアクセスできます
 
 </details>
 
+### 2. Register a route
+
+```bash
+nameroute run http myapp -- next dev
+```
+
+空きポートの自動割り当てからルート登録まで全自動。Docker を使う場合は、ラベルを付けるだけで[自動登録](docker.md)もできます。
+
 <details>
-<summary>その他のルート登録方法</summary>
+<summary>その他のルート登録方法（Docker / add / Config）</summary>
 
 #### Docker
 
@@ -227,6 +217,14 @@ backend = "127.0.0.1:3000"
 
 </details>
 
+### 3. Access by name
+
+```bash
+curl http://myapp.localhost:8080
+```
+
+HTTP 以外にも PostgreSQL、MySQL、SMTP に名前でアクセスできます。
+
 <details>
 <summary>他のプロトコルでのアクセス例</summary>
 
@@ -246,48 +244,15 @@ swaks --to user@myapp.localhost --server localhost --port 10025
 
 ## HTTPS
 
-HTTPS リスナーはデフォルトで有効（passthrough モード、証明書不要）です。
-
-**Passthrough モード（デフォルト）** — TLS をそのままバックエンドに転送します。バックエンド側が TLS を処理します。設定不要でゼロコンフィグで動作します。
+HTTPS リスナーはデフォルトで有効です。証明書不要の **Passthrough** モードと、mkcert 等の証明書で TLS を終端する **Terminate** モードがあります。
 
 ```bash
-# バックエンドが自前で TLS を処理する場合（Next.js --experimental-https 等）
+# Passthrough（デフォルト）— バックエンドが TLS を処理
 nameroute add https myapp 127.0.0.1:3443
 curl https://myapp.localhost:8443
 ```
 
-**Terminate モード** — name-route が TLS を終端し、バックエンドには HTTP で転送します。mkcert 等の証明書が必要です。
-
-```bash
-# 1. mkcert をインストール（初回のみ）
-brew install mkcert  # macOS
-# apt install mkcert  # Linux
-
-# 2. ローカル CA をインストール
-mkcert -install
-
-# 3. ワイルドカード証明書を生成
-mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
-```
-
-設定ファイルに TLS セクションを追加し、ルートに `tls_mode = "terminate"` を指定します：
-
-```toml
-[tls]
-cert = "cert.pem"
-key = "key.pem"
-
-[[routes]]
-protocol = "https"
-key = "myapp"
-backend = "127.0.0.1:3000"
-tls_mode = "terminate"
-```
-
-```bash
-# HTTPS でアクセス（name-route が TLS を終端し、バックエンドには HTTP で転送）
-curl https://myapp.localhost:8443
-```
+詳細は [HTTPS](https.md) を参照してください。
 
 
 ## Commands
@@ -381,6 +346,7 @@ backend = "127.0.0.1:3000"
 
 - [nameroute run](run.md) — `$PORT` 置換、`--detect-port`、`--port-env`
 - [Docker integration](docker.md) — Docker ラベルによるルート登録、`ports:` の廃止方法
+- [HTTPS](https.md) — Passthrough / Terminate モードの設定方法
 - [Migration guide](migration.md) — 既存プロジェクトからの移行手順
 
 
