@@ -40,6 +40,37 @@ No matter what port backends actually listen on, developers only think about nam
 - **Single binary** — No dependencies. Drop one file and go
 
 
+## Tested with
+
+The following client libraries and server versions have been verified through integration tests. This is not a support commitment — just a record of what has been tested.
+
+**PostgreSQL** — PostgreSQL 14, 15, 16, 17
+
+| Language | Library |
+|----------|---------|
+| C | libpq |
+| Go | pgx |
+| Java | JDBC (postgresql) |
+| Node.js | pg |
+| PHP | PDO pgsql |
+| Python | psycopg2, psycopg (v3) |
+| Ruby | pg |
+| Rust | tokio-postgres |
+
+**MySQL** — MySQL 5.7, 8.0, 8.4
+
+| Language | Library |
+|----------|---------|
+| C | libmysqlclient |
+| Go | go-sql-driver/mysql |
+| Java | mysql-connector-j |
+| Node.js | mysql2 |
+| PHP | PDO mysql |
+| Python | PyMySQL, mysqlclient |
+| Ruby | mysql2 |
+| Rust | mysql_async |
+
+
 ## Install
 
 ```bash

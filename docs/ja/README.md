@@ -43,6 +43,37 @@ name-route は、ポート番号の代わりに「名前」でアクセスでき
 - **シングルバイナリ** — 依存なし。1ファイルを置くだけで動作
 
 
+## Tested with
+
+以下のクライアントライブラリ・サーバーバージョンで動作確認を行っています。公式サポートではなく、テスト実績としての記載です。
+
+**PostgreSQL** — PostgreSQL 14, 15, 16, 17
+
+| Language | Library |
+|----------|---------|
+| C | libpq |
+| Go | pgx |
+| Java | JDBC (postgresql) |
+| Node.js | pg |
+| PHP | PDO pgsql |
+| Python | psycopg2, psycopg (v3) |
+| Ruby | pg |
+| Rust | tokio-postgres |
+
+**MySQL** — MySQL 5.7, 8.0, 8.4
+
+| Language | Library |
+|----------|---------|
+| C | libmysqlclient |
+| Go | go-sql-driver/mysql |
+| Java | mysql-connector-j |
+| Node.js | mysql2 |
+| PHP | PDO mysql |
+| Python | PyMySQL, mysqlclient |
+| Ruby | mysql2 |
+| Rust | mysql_async |
+
+
 ## Install
 
 ```bash
