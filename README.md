@@ -40,37 +40,6 @@ No matter what port backends actually listen on, developers only think about nam
 - **Single binary** — No dependencies. Drop one file and go
 
 
-## Tested with
-
-The following client libraries and server versions have been verified through integration tests. This is not a support commitment — just a record of what has been tested.
-
-**PostgreSQL** — PostgreSQL 14, 15, 16, 17
-
-| Language | Library |
-|----------|---------|
-| C | libpq |
-| Go | pgx |
-| Java | JDBC (postgresql) |
-| Node.js | pg |
-| PHP | PDO pgsql |
-| Python | psycopg2, psycopg (v3) |
-| Ruby | pg |
-| Rust | tokio-postgres |
-
-**MySQL** — MySQL 5.7, 8.0, 8.4
-
-| Language | Library |
-|----------|---------|
-| C | libmysqlclient |
-| Go | go-sql-driver/mysql |
-| Java | mysql-connector-j |
-| Node.js | mysql2 |
-| PHP | PDO mysql |
-| Python | PyMySQL, mysqlclient |
-| Ruby | mysql2 |
-| Rust | mysql_async |
-
-
 ## Install
 
 ```bash
@@ -370,6 +339,39 @@ backend = "127.0.0.1:3000"
 ```
 
 See [config.example.toml](config.example.toml) for the full reference.
+
+
+## Tested with
+
+The following client libraries and server versions have been verified through integration tests. This is not a support commitment — just a record of what has been tested.
+
+**PostgreSQL**
+
+| Language | Library | 14 | 15 | 16 | 17 |
+|----------|---------|:--:|:--:|:--:|:--:|
+| C | libpq | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Go | pgx | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Java | JDBC (postgresql) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Node.js | pg | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| PHP | PDO pgsql | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Python | psycopg2 | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Python | psycopg (v3) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Ruby | pg | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Rust | tokio-postgres | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+
+**MySQL**
+
+| Language | Library | 5.7 | 8.0 | 8.4 |
+|----------|---------|:---:|:---:|:---:|
+| C | libmysqlclient | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Go | go-sql-driver/mysql | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Java | mysql-connector-j | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Node.js | mysql2 | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| PHP | PDO mysql | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Python | PyMySQL | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Python | mysqlclient | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Ruby | mysql2 | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Rust | mysql_async | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 
 
 ## Docs
