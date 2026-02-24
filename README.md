@@ -343,7 +343,7 @@ See [config.example.toml](config.example.toml) for the full reference.
 
 ## Tested with
 
-All combinations of the client libraries below and server versions (PostgreSQL 14–17, MySQL 5.7–8.4) have been verified through integration tests.
+All combinations of the client libraries below and server versions (PostgreSQL 14–17, MySQL 5.7–8.4) have been verified through integration tests. This is not a guarantee of compatibility — just a record of what has been tested so far.
 
 | Language | PostgreSQL | MySQL |
 |----------|------------|-------|
