@@ -140,16 +140,37 @@ cargo install --git https://github.com/SpreadWorks/name-route
 sudo nameroute
 ```
 
-設定ファイルなしで、全プロトコルのリスナーが起動します。
+設定ファイルなしで、全プロトコルのリスナーが起動します。`sudo` なしでも動作します（詳細は下記）。
 
-> **`sudo` なしでも動作します。**
-> 主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスだけなら DNS や `/etc/hosts` の編集は不要です。
->
-> `sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいはシステムのリゾルバを使うアプリケーションから `*.localhost` にアクセスする場合です。これらは OS の名前解決に依存するため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+### 2. Register a route
 
-### 2. Register routes
+```bash
+nameroute run http myapp -- next dev
+```
 
-ルートの登録方法は4つあります。
+空きポートの自動割り当てからルート登録まで全自動。Docker を使う場合は、ラベルを付けるだけで[自動登録](docker.md)もできます。他にも `add` コマンドや設定ファイルによる登録方法があります（詳細は下記）。
+
+### 3. Access by name
+
+```bash
+curl http://myapp.localhost:8080
+```
+
+HTTP 以外にも PostgreSQL、MySQL、SMTP に名前でアクセスできます（詳細は下記）。
+
+---
+
+<details>
+<summary>sudo なしでの利用について</summary>
+
+主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスだけなら `sudo` なしで動作します。DNS や `/etc/hosts` の編集も不要です。
+
+`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいはシステムのリゾルバを使うアプリケーションから `*.localhost` にアクセスする場合です。これらは OS の名前解決に依存するため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+
+</details>
+
+<details>
+<summary>その他のルート登録方法</summary>
 
 #### Docker
 
@@ -169,18 +190,6 @@ services:
 ```
 
 詳細は [Docker integration](docker.md) を参照してください。
-
-#### `nameroute run`
-
-空きポートの割り当てからルート登録まで全自動で行います。ポート番号を一切意識する必要がなくなるため、Docker を使わないローカルプロセスの開発に最適です。
-
-```bash
-nameroute run http myapp -- next dev
-# → 空きポートが自動割り当てされ、http://myapp.localhost:8080 でアクセス可能に
-# → Ctrl+C で子プロセス停止 & ルート自動削除
-```
-
-詳細は [nameroute run](run.md) を参照してください。
 
 #### `add` コマンド
 
@@ -216,18 +225,23 @@ protocol = "http"
 backend = "127.0.0.1:3000"
 ```
 
-### 3. Access by name
+</details>
+
+<details>
+<summary>他のプロトコルでのアクセス例</summary>
 
 ```bash
-# HTTP — サブドメインで振り分け
-curl http://myapp.localhost:8080
-
 # PostgreSQL — データベース名で振り分け
 psql -h localhost -p 15432 -d myapp
 
 # MySQL — データベース名で振り分け
 mysql -h localhost -P 13306 -D myapp
+
+# SMTP — 宛先ドメインで振り分け
+swaks --to user@myapp.localhost --server localhost --port 10025
 ```
+
+</details>
 
 
 ## HTTPS
