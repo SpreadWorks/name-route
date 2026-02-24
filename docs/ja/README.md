@@ -1,23 +1,21 @@
+[English](../../README.md)
+
 # name-route
 
-> Name it. We route it.
+## Name it. Route it.
 
-複数プロジェクトの同時開発や、AIによる並列開発では、
-管理するポートが増え続けます。
-
-name-route は、ポート番号の代わりに「名前」でアクセスできるようにする
-ローカル開発専用のルーティングツールです。
-
-覚えるポートはプロトコルごとに一つだけ。
-あとはデータベース名やホスト名を指定するだけで、適切なサービスに自動でつながります。
+複数プロジェクトの同時開発や、AIによる並列開発では、管理するポートが増え続けます。
+name-route は、ポート番号の代わりに「名前」でアクセスできるようにするローカル開発専用のルーティングツールです。
+覚えるポートはプロトコルごとに一つだけ。あとはデータベース名やホスト名を指定するだけで、適切なサービスに自動でつながります。
 
 > **Note:** name-route はローカル環境での利用を前提に設計されています。
 > 外部公開やプロダクション環境での使用は想定していません。
 
+
 ## How it works
 
 <p align="center">
-  <img src="../images/how-it-works.svg" alt="How it works" width="800" />
+  <img src="../images/how-it-works.svg" alt="How it works" width="100%" />
 </p>
 
 プロトコルごとに1つのポートを覚えるだけで、あとは名前で振り分けます。
@@ -28,11 +26,12 @@ name-route は、ポート番号の代わりに「名前」でアクセスでき
 
 バックエンドの実ポートが何番でも、開発者が意識するのは名前だけです。
 
+
 ## Features
 
-- **4つのプロトコル対応** — HTTP, PostgreSQL, MySQL, SMTP をプロトコルレベルで解析してルーティング
+- **5つのプロトコル対応** — HTTP, HTTPS, PostgreSQL, MySQL, SMTP をプロトコルレベルで解析してルーティング
 - **HTTPS (passthrough / terminate)** — デフォルトは passthrough（TLS をバックエンドにそのまま転送、証明書不要）。terminate モードでは mkcert 等の証明書で TLS を終端し、バックエンドに HTTP で転送
-- **WebSocket 透過** — HTTP プロキシは `copy_bidirectional` による透過リレーのため、WebSocket（Next.js HMR 等）がそのまま動作
+- **WebSocket 透過** — HTTP プロキシは透過リレーのため、WebSocket（Next.js HMR 等）がそのまま動作
 - **`nameroute run`** — 空きポート自動割り当て + ルート自動登録。ポート番号の管理から解放
 - **Docker 自動検出** — コンテナのラベルからルートを自動登録。起動・停止に追従
 - **Discovery** — プロジェクトごとの `.nameroute.toml` を自動検出。Git 管理可能
@@ -43,86 +42,131 @@ name-route は、ポート番号の代わりに「名前」でアクセスでき
 - **/etc/hosts 自動管理** — HTTP ルートに対応するホスト名を自動で追加・削除（root 時。ブラウザのみなら不要）
 - **シングルバイナリ** — 依存なし。1ファイルを置くだけで動作
 
+
 ## Install
 
-### Homebrew (macOS / Linux)
+```bash
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
+chmod +x nameroute
+sudo mv nameroute /usr/local/bin/
+```
+
+<details>
+<summary>Homebrew (macOS / Linux)</summary>
 
 ```bash
 brew install SpreadWorks/tap/nameroute
 ```
 
-### deb (Debian / Ubuntu)
+</details>
+
+<details>
+<summary>Debian / Ubuntu</summary>
+
+#### x86_64
 
 ```bash
-# x86_64
 curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_amd64.deb
 sudo dpkg -i nameroute_amd64.deb
+```
 
-# ARM64
+#### ARM64
+
+```bash
 curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute_arm64.deb
 sudo dpkg -i nameroute_arm64.deb
 ```
 
-### rpm (RHEL / Fedora)
+</details>
+
+<details>
+<summary>RHEL / Fedora</summary>
+
+#### x86_64
 
 ```bash
-# x86_64
 curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64.rpm
 sudo rpm -i nameroute-x86_64.rpm
+```
 
-# ARM64
+#### ARM64
+
+```bash
 curl -LO https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64.rpm
 sudo rpm -i nameroute-aarch64.rpm
 ```
 
-### バイナリを直接ダウンロード
+</details>
+
+<details>
+<summary>Other platforms</summary>
+
+#### macOS (Apple Silicon)
 
 ```bash
-# macOS (Apple Silicon)
 curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-apple-darwin -o nameroute
-
-# macOS (Intel)
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-apple-darwin -o nameroute
-
-# Linux (x86_64)
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
-
-# Linux (ARM64)
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-unknown-linux-gnu -o nameroute
-```
-
-```bash
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 ```
 
-### ソースからビルド
+#### macOS (Intel)
+
+```bash
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-apple-darwin -o nameroute
+chmod +x nameroute
+sudo mv nameroute /usr/local/bin/
+```
+
+#### Linux (ARM64)
+
+```bash
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-unknown-linux-gnu -o nameroute
+chmod +x nameroute
+sudo mv nameroute /usr/local/bin/
+```
+
+#### Build from source
 
 ```bash
 cargo install --git https://github.com/SpreadWorks/name-route
 ```
 
+</details>
+
+
 ## Quick Start
 
-### 1. 起動する
+### 1. Start
 
 ```bash
 sudo nameroute
 ```
 
-設定ファイルなしで、全プロトコルのリスナーが起動します。
+設定ファイルなしで、全プロトコルのリスナーが起動します。`sudo` なしでも動作します。
 
-> **`sudo` なしでも動作します。**
-> 主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、
-> ブラウザからのアクセスだけなら DNS や `/etc/hosts` の編集は不要です。
->
-> `sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、
-> あるいはシステムのリゾルバを使うアプリケーションから `*.localhost` にアクセスする場合です。
-> これらは OS の名前解決に依存するため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+<details>
+<summary>sudo なしでの利用について</summary>
 
-### 2. ルートを登録する
+主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスだけなら `sudo` なしで動作します。DNS や `/etc/hosts` の編集も不要です。
 
-**Docker の場合** — コンテナにラベルを付けるだけで自動登録されます。
+`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいはシステムのリゾルバを使うアプリケーションから `*.localhost` にアクセスする場合です。これらは OS の名前解決に依存するため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+
+</details>
+
+### 2. Register a route
+
+```bash
+nameroute run http myapp -- next dev
+```
+
+空きポートの自動割り当てからルート登録まで全自動。Docker を使う場合は、ラベルを付けるだけで[自動登録](docker.md)もできます。
+
+<details>
+<summary>その他のルート登録方法（Docker / add / Config）</summary>
+
+#### Docker
+
+コンテナに `name-route` ラベルを付けるだけで、起動・停止に追従して自動登録されます。Docker を使った開発では最も手軽な方法です。
 
 ```yaml
 # docker-compose.yml
@@ -137,37 +181,20 @@ services:
       name-route: '[{"protocol":"postgres","key":"myapp"}]'
 ```
 
-**`nameroute run` の場合** — ポート割り当てからルート登録まで全自動で行います。
+詳細は [Docker integration](docker.md) を参照してください。
 
-```bash
-nameroute run http myapp -- next dev
-# → 空きポートが自動割り当てされ、http://myapp.localhost:8080 でアクセス可能に
-# → Ctrl+C で子プロセス停止 & ルート自動削除
-```
+#### `add` コマンド
 
-```json
-// package.json
-{
-  "scripts": {
-    "dev": "nameroute run http myapp -- next dev"
-  }
-}
-```
-
-ポート番号を完全に意識する必要がなくなります。詳細は [run コマンドガイド](run.md) を参照してください。
-
-**コマンドの場合** — `add` で動的にルートを追加できます。
+既に起動済みのサービスに対して、動的にルートを追加・削除できます。ポート番号を自分で指定する必要があります。
 
 ```bash
 nameroute add http myapp 127.0.0.1:3000
 nameroute add postgres myapp 127.0.0.1:5432
 ```
 
-**設定ファイルの場合** — TOML で静的ルートを定義します。
+#### Config / Discovery
 
-```bash
-sudo nameroute --config routes.toml
-```
+TOML ファイルで静的ルートを定義します。起動時に常に同じルートを登録したい場合に使います。
 
 ```toml
 # routes.toml
@@ -175,102 +202,80 @@ sudo nameroute --config routes.toml
 protocol = "http"
 key = "myapp"
 backend = "127.0.0.1:3000"
-
-[[routes]]
-protocol = "postgres"
-key = "myapp"
-backend = "127.0.0.1:5432"
 ```
 
-**Discovery の場合** — 各プロジェクトに `.nameroute.toml` を置くと自動検出されます。
-
-```toml
-# config.toml
-[discovery]
-enabled = true
-paths = ["~/workspace", "~/projects"]
+```bash
+sudo nameroute --config routes.toml
 ```
+
+Discovery を有効にすると、各プロジェクトに置いた `.nameroute.toml` を自動検出します。`key` を省略するとディレクトリ名がキーになります。Git で管理できるため、チーム開発やプロジェクトテンプレートとの相性が良いのが特長です。
 
 ```toml
 # ~/workspace/myapp/.nameroute.toml
 [[routes]]
 protocol = "http"
 backend = "127.0.0.1:3000"
-
-[[routes]]
-protocol = "postgres"
-backend = "127.0.0.1:5432"
 ```
 
-`key` を省略するとディレクトリ名がキーになります（上記なら `myapp`）。
-明示的にキーを指定することも可能です：
+</details>
 
-```toml
-[[routes]]
-protocol = "http"
-key = "api"
-backend = "127.0.0.1:8000"
-```
-
-Git で管理できるため、チーム開発やプロジェクトテンプレートとの相性が良いのが特長です。
-
-### 3. 名前でアクセスする
+### 3. Access by name
 
 ```bash
-# HTTP — サブドメインで振り分け
 curl http://myapp.localhost:8080
+```
 
+HTTP 以外にも PostgreSQL、MySQL、SMTP に名前でアクセスできます。
+
+<details>
+<summary>他のプロトコルでのアクセス例</summary>
+
+```bash
 # PostgreSQL — データベース名で振り分け
 psql -h localhost -p 15432 -d myapp
 
 # MySQL — データベース名で振り分け
 mysql -h localhost -P 13306 -D myapp
+
+# SMTP — 宛先ドメインで振り分け
+swaks --to user@myapp.localhost --server localhost --port 10025
 ```
 
-#### HTTPS を使う場合
+</details>
 
-HTTPS リスナーはデフォルトで有効（passthrough モード、証明書不要）です。
 
-**Passthrough モード（デフォルト）** — TLS をそのままバックエンドに転送します。バックエンド側が TLS を処理します。設定不要でゼロコンフィグで動作します。
+## HTTPS
+
+HTTPS リスナーはデフォルトで有効です。証明書不要の **Passthrough** モードと、mkcert 等の証明書で TLS を終端する **Terminate** モードがあります。
 
 ```bash
-# バックエンドが自前で TLS を処理する場合（Next.js --experimental-https 等）
+# Passthrough（デフォルト）— バックエンドが TLS を処理
 nameroute add https myapp 127.0.0.1:3443
 curl https://myapp.localhost:8443
 ```
 
-**Terminate モード** — name-route が TLS を終端し、バックエンドには HTTP で転送します。mkcert 等の証明書が必要です。
+詳細は [HTTPS](https.md) を参照してください。
+
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `nameroute` | daemon を起動（デフォルト。`nameroute serve` と同等） |
+| `nameroute serve` | daemon を起動（systemd/launchd 向け） |
+| `nameroute run` | 空きポート自動割り当て + ルート登録 + コマンド実行 |
+| `nameroute add` | ルートを動的に追加 |
+| `nameroute remove` | ルートを動的に削除 |
+| `nameroute list` | 現在のルート一覧を表示 |
+| `nameroute status` | daemon の状態を表示 |
+| `nameroute reload` | 設定ファイルを再読み込み |
 
 ```bash
-# 1. mkcert をインストール（初回のみ）
-brew install mkcert  # macOS
-# apt install mkcert  # Linux
-
-# 2. ローカル CA をインストール
-mkcert -install
-
-# 3. ワイルドカード証明書を生成
-mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
+# ルートの追加と削除
+nameroute add http myapp 127.0.0.1:3000
+nameroute remove http myapp
 ```
 
-設定ファイルに TLS セクションを追加し、ルートに `tls_mode = "terminate"` を指定します：
-
-```toml
-[tls]
-cert = "cert.pem"
-key = "key.pem"
-
-[[routes]]
-protocol = "https"
-key = "myapp"
-backend = "127.0.0.1:3000"
-tls_mode = "terminate"
-```
-
-```bash
-# HTTPS でアクセス（name-route が TLS を終端し、バックエンドには HTTP で転送）
-curl https://myapp.localhost:8443
-```
 
 ## Configuration
 
@@ -279,15 +284,23 @@ curl https://myapp.localhost:8443
 ```toml
 [general]
 log_level = "info"         # trace, debug, info, warn, error
-log_output = "stderr"      # stderr, stdout, file
 
 [docker]
 enabled = true             # false で Docker 連携を無効化
 poll_interval = 3          # コンテナ検出の間隔（秒）
 
+[backend]
+connect_timeout = 5        # バックエンドへの接続タイムアウト（秒）
+connect_retries = 3        # 接続リトライ回数
+idle_timeout = 10          # L7 解析後のアイドルタイムアウト（秒）
+
 [listeners.http]
 protocol = "http"
 bind = "127.0.0.1:8080"
+
+[listeners.https]
+protocol = "https"
+bind = "127.0.0.1:8443"
 
 [listeners.postgres]
 protocol = "postgres"
@@ -307,10 +320,19 @@ base_domain = "localhost"  # サブドメインの親ドメイン
 [dns]
 bind = "127.0.0.1:53"     # DNS サーバーのアドレス
 
+[smtp]
+mailbox_dir = "/var/lib/name-route/mailbox"
+max_message_size = 10485760  # 10MB
+
 [discovery]
 enabled = true             # false で Discovery を無効化
 paths = ["~/workspace"]    # 走査する親ディレクトリ
 poll_interval = 3          # 走査間隔（秒）
+
+# TLS 設定（terminate モード用）
+# [tls]
+# cert = "cert.pem"
+# key = "key.pem"
 
 # 静的ルート（複数定義可能）
 [[routes]]
@@ -319,13 +341,32 @@ key = "myapp"
 backend = "127.0.0.1:3000"
 ```
 
-詳細な設定リファレンスは [Configuration Guide](../configuration.md) を参照してください。
+すべての設定項目は [config.example.toml](../../config.example.toml) を参照してください。
+
+
+## Tested with
+
+以下のクライアントライブラリとサーバーバージョン（PostgreSQL 14–17, MySQL 5.7–8.4）の全組み合わせで動作確認を行っています。公式サポートではなく、テスト実績としての記載です。
+
+| Language | PostgreSQL | MySQL |
+|----------|------------|-------|
+| C | libpq | libmysqlclient |
+| Go | pgx | go-sql-driver/mysql |
+| Java | JDBC (postgresql) | mysql-connector-j |
+| Node.js | pg | mysql2 |
+| PHP | PDO pgsql | PDO mysql |
+| Python | psycopg2, psycopg (v3) | PyMySQL, mysqlclient |
+| Ruby | pg | mysql2 |
+| Rust | tokio-postgres | mysql_async |
+
 
 ## Docs
 
-- [run コマンドガイド](run.md) — `nameroute run` の使い方、`$PORT` 置換、`--detect-port`、`--port-env`
-- [Docker 連携ガイド](docker.md) — Docker ラベルによるルート登録、`ports:` の廃止方法
-- [マイグレーションガイド](migration.md) — 既存プロジェクトからの移行手順
+- [nameroute run](run.md) — `$PORT` 置換、`--detect-port`、`--port-env`
+- [Docker integration](docker.md) — Docker ラベルによるルート登録、`ports:` の廃止方法
+- [HTTPS](https.md) — Passthrough / Terminate モードの設定方法
+- [Migration guide](migration.md) — 既存プロジェクトからの移行手順
+
 
 ## License
 

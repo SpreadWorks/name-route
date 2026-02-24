@@ -1,11 +1,13 @@
-# マイグレーションガイド
+[English](../migration.md)
+
+# Migration guide
 
 既存のプロジェクトを name-route に移行する手順を説明します。
 
-## 概要
 
-移行のゴールは、プロジェクト内のポート番号のハードコーディングを排除し、
-名前ベースのルーティングに切り替えることです。
+## Overview
+
+移行のゴールは、プロジェクト内のポート番号のハードコーディングを排除し、名前ベースのルーティングに切り替えることです。
 
 **Before:**
 ```
@@ -21,19 +23,23 @@ http://api.myapp.localhost:8080   → API
 postgresql://localhost:15432/mydb
 ```
 
-## Step 1: name-route をインストール・起動
+
+## Step 1: Install & start
 
 ```bash
-# インストール
-cargo install --git https://github.com/spreadworks/name-route
+# インストール（全プラットフォームの手順は README の Install セクションを参照）
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
+chmod +x nameroute
+sudo mv nameroute /usr/local/bin/
 
 # 起動（sudo は DNS と /etc/hosts に必要）
 sudo nameroute
 ```
 
-## Step 2: ポート固定を廃止する
 
-### package.json の dev スクリプト
+## Step 2: Remove hardcoded ports
+
+### package.json dev scripts
 
 **Before:**
 ```json
@@ -53,10 +59,9 @@ sudo nameroute
 }
 ```
 
-`nameroute run` が空きポートを自動割り当てし、`PORT` 環境変数で渡します。
-Next.js, Vite, Remix などは `PORT` を自動認識します。
+`nameroute run` が空きポートを自動割り当てし、`PORT` 環境変数で渡します。Next.js, Vite, Remix などは `PORT` を自動認識します。
 
-### カスタム環境変数を使っている場合
+### Custom environment variables
 
 プロジェクトが独自の環境変数（例: `DEV_API_PORT`）でポートを管理している場合:
 
@@ -98,9 +103,10 @@ services:
 
 `ports:` を削除し、`labels:` に `name-route` ラベルを追加します。
 
-## Step 3: 接続先 URL を変更する
 
-### フロントエンドからの API 呼び出し
+## Step 3: Update connection URLs
+
+### Frontend API calls
 
 **Before:**
 ```javascript
@@ -114,7 +120,7 @@ API_URL=http://localhost:4000
 API_URL=http://api.myapp.localhost:8080
 ```
 
-### データベース接続
+### Database connection
 
 **Before:**
 ```
@@ -126,10 +132,9 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
 DATABASE_URL=postgresql://user:pass@localhost:15432/mydb
 ```
 
-name-route の PostgreSQL リスナーはデフォルトで `15432` で待ち受けます。
-データベース名 `mydb` がルーティングキーとして使われます。
+name-route の PostgreSQL リスナーはデフォルトで `15432` で待ち受けます。データベース名 `mydb` がルーティングキーとして使われます。
 
-### CORS の設定
+### CORS
 
 API サーバーに CORS を設定している場合、`*.localhost` からのリクエストを許可します。
 
@@ -152,7 +157,8 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 Rails.application.config.hosts << /.*\.localhost/
 ```
 
-## Step 4: マルチレベルサブドメインの活用
+
+## Step 4: Multi-level subdomains
 
 モノレポや複数サービス構成では、マルチレベルサブドメインが便利です。
 
@@ -165,7 +171,8 @@ nameroute run http admin.myapp -- next dev    # → http://admin.myapp.localhost
 
 ルーティングキーにドットを含めることで、論理的な階層を表現できます。
 
-## Step 5: ルートの確認
+
+## Step 5: Verify routes
 
 ```bash
 nameroute list
@@ -173,23 +180,21 @@ nameroute list
 
 ```
 PROTOCOL     KEY                  BACKEND                  SOURCE   URL
-http         myapp                127.0.0.1:43210          run      http://myapp.localhost
-http         api.myapp            127.0.0.1:43211          run      http://api.myapp.localhost
+http         myapp                127.0.0.1:43210          run      http://myapp.localhost:8080
+http         api.myapp            127.0.0.1:43211          run      http://api.myapp.localhost:8080
 postgres     myapp                172.17.0.2:5432          docker
 ```
 
-## よくある質問
 
-### 既存の Docker ネットワーク設定は変更が必要？
+## FAQ
 
-いいえ。name-route はコンテナの IP アドレスに直接接続するため、
-Docker ネットワーク設定を変更する必要はありません。
-ただし、`ports:` でホストにバインドしていたポートは不要になります。
+### Do I need to change Docker network settings?
 
-### 複数プロジェクトを同時に起動できる？
+いいえ。name-route はコンテナの IP アドレスに直接接続するため、Docker ネットワーク設定を変更する必要はありません。ただし、`ports:` でホストにバインドしていたポートは不要になります。
 
-はい。name-route の主要な利点の一つです。
-各プロジェクトが異なるキーを使えば、ポート衝突なく同時起動できます。
+### Can I run multiple projects simultaneously?
+
+はい。name-route の主要な利点の一つです。各プロジェクトが異なるキーを使えば、ポート衝突なく同時起動できます。
 
 ```bash
 # プロジェクト A
@@ -199,22 +204,12 @@ nameroute run http project-a -- next dev
 nameroute run http project-b -- next dev
 ```
 
-### sudo なしでも使える？
+### Can I use it without sudo?
 
-はい。`sudo` なしでもルーティング自体は問題なく動作します。
+はい。`sudo` なしでもルーティング自体は問題なく動作します。主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスであれば DNS サーバーも `/etc/hosts` の編集も不要です。
 
-主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に
-`127.0.0.1` に解決するため、ブラウザからのアクセスであれば
-DNS サーバーも `/etc/hosts` の編集も不要です。
+`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいは OS のシステムリゾルバに依存するアプリケーションから `*.localhost` にアクセスする場合です。これらのツールはブラウザのような独自の名前解決を持たないため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
 
-`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、
-あるいは OS のシステムリゾルバに依存するアプリケーションから
-`*.localhost` にアクセスする場合です。
-これらのツールはブラウザのような独自の名前解決を持たないため、
-DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+### Can I use it with Supabase?
 
-### Supabase と組み合わせられる？
-
-はい。Supabase の Docker コンテナにラベルを追加し、
-`API_EXTERNAL_URL` や `SITE_URL` に name-route の URL を設定することで、
-ポートの管理を不要にできます。
+はい。Supabase の Docker コンテナにラベルを追加し、`API_EXTERNAL_URL` や `SITE_URL` に name-route の URL を設定することで、ポートの管理を不要にできます。

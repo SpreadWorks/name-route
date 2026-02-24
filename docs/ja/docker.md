@@ -1,10 +1,11 @@
-# Docker 連携ガイド
+[English](../docker.md)
 
-name-route は Docker コンテナのラベルからルーティング情報を自動検出します。
-これにより、`docker-compose.yml` の `ports:` セクションを廃止し、
-ポート番号の管理から完全に解放されます。
+# Docker integration
 
-## 基本的なラベル設定
+name-route は Docker コンテナのラベルからルーティング情報を自動検出します。これにより、`docker-compose.yml` の `ports:` セクションを廃止し、ポート番号の管理から完全に解放されます。
+
+
+## Basic label configuration
 
 ```yaml
 services:
@@ -14,10 +15,10 @@ services:
       name-route: '[{"protocol":"http","key":"myapp","port":80}]'
 ```
 
-name-route はコンテナの IP アドレスとラベルで指定されたポートを組み合わせて、
-自動的にルートを登録します。
+name-route はコンテナの IP アドレスとラベルで指定されたポートを組み合わせて、自動的にルートを登録します。
 
-## ports: を廃止する
+
+## Removing ports:
 
 従来の `docker-compose.yml`:
 
@@ -54,7 +55,8 @@ services:
 - 複数プロジェクトを同時に起動できる
 - `docker-compose.yml` がシンプルになる
 
-## ラベルの書式
+
+## Label format
 
 ラベル値は JSON 配列で、複数のルートを一度に定義できます。
 
@@ -78,7 +80,8 @@ services:
 - MySQL: 3306
 - SMTP: 25
 
-## docker run でのラベル指定
+
+## Labels with docker run
 
 `docker-compose.yml` を使わない場合でも、`docker run` の `--label` オプションでラベルを指定できます。
 
@@ -96,10 +99,10 @@ docker run --label 'name-route=[{"protocol":"http","key":"myapp","port":3000},{"
 docker compose run --label 'name-route=[{"protocol":"http","key":"myapp","port":80}]' web
 ```
 
-> **Note:** `docker compose run` で指定したラベルは、`docker-compose.yml` の `labels:` より優先されます。
-> 一時的に別のキーでルートを登録したい場合などに便利です。
+> **Note:** `docker compose run` で指定したラベルは、`docker-compose.yml` の `labels:` より優先されます。一時的に別のキーでルートを登録したい場合などに便利です。
 
-## 複数ルートの例
+
+## Multiple routes
 
 一つのコンテナで複数のプロトコルを公開する場合:
 
@@ -115,10 +118,10 @@ services:
         ]
 ```
 
-## コンテナの起動・停止への追従
 
-name-route は定期的に Docker をポーリング（デフォルト 3 秒間隔）し、
-コンテナの起動・停止を検出します。
+## Container lifecycle tracking
+
+name-route は定期的に Docker をポーリング（デフォルト 3 秒間隔）し、コンテナの起動・停止を検出します。
 
 - コンテナが起動 → ルートが自動登録
 - コンテナが停止 → ルートが自動削除
@@ -131,7 +134,8 @@ enabled = true
 poll_interval = 3  # 秒
 ```
 
-## Docker を使わないサービスとの共存
+
+## Mixing with non-Docker services
 
 Docker コンテナと、ホスト側で動かす開発サーバーを組み合わせることができます。
 
