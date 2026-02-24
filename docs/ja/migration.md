@@ -1,3 +1,5 @@
+[English](../migration.md)
+
 # Migration guide
 
 既存のプロジェクトを name-route に移行する手順を説明します。

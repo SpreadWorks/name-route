@@ -1,3 +1,5 @@
+[English](../../README.md)
+
 # name-route
 
 ## Name it. Route it.

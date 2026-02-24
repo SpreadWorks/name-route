@@ -1,3 +1,5 @@
+[English](../https.md)
+
 # HTTPS
 
 name-route は HTTPS リスナーをデフォルトで有効にしています。Passthrough と Terminate の2つのモードがあります。

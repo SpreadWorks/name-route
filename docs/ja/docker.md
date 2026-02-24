@@ -1,3 +1,5 @@
+[English](../docker.md)
+
 # Docker integration
 
 name-route は Docker コンテナのラベルからルーティング情報を自動検出します。これにより、`docker-compose.yml` の `ports:` セクションを廃止し、ポート番号の管理から完全に解放されます。
