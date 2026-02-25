@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -173,9 +173,18 @@ async fn handle_connection(
     listener_ports: &HashMap<ProtocolKind, u16>,
 ) -> std::io::Result<()> {
     let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
 
-    while let Some(line) = lines.next_line().await? {
+    const MAX_LINE: usize = 65536;
+
+    loop {
+        line.clear();
+        let n = read_limited_line(&mut reader, &mut line, MAX_LINE).await?;
+        if n == 0 {
+            break;
+        }
+        let line = line.trim_end();
         let response = match serde_json::from_str::<Request>(&line) {
             Ok(req) => handle_request(req, &table, &health_map, base_domain, tls_cert, tls_key, listener_ports).await,
             Err(e) => Response::error(format!("invalid request: {}", e)),
@@ -337,6 +346,46 @@ fn parse_backend(s: &str) -> Result<(IpAddr, u16), String> {
         .map_err(|_| format!("invalid port: {}", port_str))?;
 
     Ok((addr, port))
+}
+
+/// Read a line from the buffered reader, limited to `max_bytes`.
+/// Returns an error if the line exceeds the limit.
+async fn read_limited_line<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    buf: &mut String,
+    max_bytes: usize,
+) -> std::io::Result<usize> {
+    let mut total = 0;
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(total);
+        }
+        if let Some(newline_pos) = available.iter().position(|&b| b == b'\n') {
+            let to_consume = newline_pos + 1;
+            let chunk = &available[..to_consume];
+            total += chunk.len();
+            if total > max_bytes {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("line too long (>{} bytes)", max_bytes),
+                ));
+            }
+            buf.push_str(&String::from_utf8_lossy(chunk));
+            reader.consume(to_consume);
+            return Ok(total);
+        }
+        let len = available.len();
+        total += len;
+        if total > max_bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("line too long (>{} bytes)", max_bytes),
+            ));
+        }
+        buf.push_str(&String::from_utf8_lossy(available));
+        reader.consume(len);
+    }
 }
 
 // --- Client ---
