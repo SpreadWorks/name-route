@@ -1,9 +1,10 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::error::Result;
@@ -30,7 +31,7 @@ impl HttpHandler {
 
 impl ProtocolHandler for HttpHandler {
     async fn handle_connection(&self, client: TcpStream, peer: SocketAddr) -> Result<()> {
-        handle_http_stream(client, peer, &self.routing_table, &self.config_rx, ProtocolKind::Http)
+        handle_http_stream(client, peer, &self.routing_table, &self.config_rx, ProtocolKind::Http, None)
             .await
     }
 }
@@ -38,12 +39,15 @@ impl ProtocolHandler for HttpHandler {
 /// HTTP stream handler that works with any stream type (TcpStream, TlsStream, etc.)
 /// `protocol_kind` determines which protocol to use for routing table lookup
 /// (Http for plain HTTP, Https for TLS-terminated HTTPS).
+/// `expected_key` is set for HTTPS terminate mode to verify the Host header matches
+/// the SNI-derived key, preventing host header attacks.
 pub(crate) async fn handle_http_stream<S>(
     client: S,
     peer: SocketAddr,
     routing_table: &SharedRoutingTable,
     config_rx: &watch::Receiver<Config>,
     protocol_kind: ProtocolKind,
+    expected_key: Option<&str>,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -52,36 +56,48 @@ where
 
     let config = config_rx.borrow().clone();
     let base_domain = &config.http.base_domain;
+    let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
 
     // Read request line + headers into buffer until \r\n\r\n
     let mut buf = Vec::with_capacity(4096);
     let mut buf_reader = BufReader::new(client);
     let header_end;
 
-    loop {
-        let available = buf_reader.fill_buf().await?;
-        if available.is_empty() {
+    let header_read = async {
+        loop {
+            let available = buf_reader.fill_buf().await?;
+            if available.is_empty() {
+                return Ok::<Option<usize>, crate::error::Error>(None);
+            }
+
+            // Search for \r\n\r\n in the combined existing buf + new data
+            let prev_len = buf.len();
+            buf.extend_from_slice(available);
+            let consumed = available.len();
+            buf_reader.consume(consumed);
+
+            if buf.len() > MAX_HEADER_SIZE {
+                send_response(buf_reader.get_mut(), 431, "Request Header Fields Too Large", "Headers too large").await?;
+                return Ok(None);
+            }
+
+            // Search for \r\n\r\n starting from where it could first appear
+            let search_start = if prev_len >= 3 { prev_len - 3 } else { 0 };
+            if let Some(pos) = buf[search_start..].windows(4).position(|w| w == b"\r\n\r\n") {
+                return Ok(Some(search_start + pos + 4));
+            }
+        }
+    };
+
+    header_end = match tokio::time::timeout(handshake_timeout, header_read).await {
+        Ok(Ok(Some(end))) => end,
+        Ok(Ok(None)) => return Ok(()),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            warn!(peer = %peer, "HTTP header read timed out");
             return Ok(());
         }
-
-        // Search for \r\n\r\n in the combined existing buf + new data
-        let prev_len = buf.len();
-        buf.extend_from_slice(available);
-        let consumed = available.len();
-        buf_reader.consume(consumed);
-
-        if buf.len() > MAX_HEADER_SIZE {
-            send_response(buf_reader.get_mut(), 431, "Request Header Fields Too Large", "Headers too large").await?;
-            return Ok(());
-        }
-
-        // Search for \r\n\r\n starting from where it could first appear
-        let search_start = if prev_len >= 3 { prev_len - 3 } else { 0 };
-        if let Some(pos) = buf[search_start..].windows(4).position(|w| w == b"\r\n\r\n") {
-            header_end = search_start + pos + 4;
-            break;
-        }
-    }
+    };
 
     // Parse Host header from the header portion of the buffer
     let header_str = String::from_utf8_lossy(&buf[..header_end]);
@@ -112,6 +128,22 @@ where
             return Ok(());
         }
     };
+
+    // In HTTPS terminate mode, verify the Host header matches the SNI-derived key
+    // to prevent host header attacks that could route to unintended backends.
+    if let Some(expected) = expected_key {
+        if key != expected {
+            info!(peer = %peer, host_key = %key, sni_key = %expected, "Host header does not match SNI");
+            send_response(
+                buf_reader.get_mut(),
+                421,
+                "Misdirected Request",
+                "Host header does not match SNI",
+            )
+            .await?;
+            return Ok(());
+        }
+    }
 
     debug!(peer = %peer, key = %key, host = %host, "HTTP routing lookup");
 

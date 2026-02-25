@@ -194,13 +194,16 @@ sudo systemctl restart nameroute</pre>
                     return Ok(());
                 }
 
-                // Delegate to HTTP handler with ProtocolKind::Https for routing lookup
+                // Delegate to HTTP handler with ProtocolKind::Https for routing lookup.
+                // Pass the SNI-derived key to verify Host header matches,
+                // preventing host header attacks.
                 http::handle_http_stream(
                     tls_stream,
                     peer,
                     &self.routing_table,
                     &self.config_rx,
                     ProtocolKind::Https,
+                    Some(&key),
                 )
                 .await?;
             }
