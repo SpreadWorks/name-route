@@ -68,7 +68,16 @@ pub fn clean() {
 fn write_hosts(path: &str, hostnames: &[String]) -> std::io::Result<()> {
     let content = fs::read_to_string(path).unwrap_or_default();
     let new_content = rebuild_hosts(&content, hostnames);
-    fs::write(path, new_content)?;
+
+    // Atomic write: write to a temp file in the same directory, then rename.
+    // This prevents /etc/hosts corruption if the process crashes mid-write.
+    let dir = std::path::Path::new(path)
+        .parent()
+        .unwrap_or(std::path::Path::new("/tmp"));
+    let tmp_path = dir.join(".hosts.nameroute.tmp");
+    fs::write(&tmp_path, &new_content)?;
+    fs::rename(&tmp_path, path)?;
+
     Ok(())
 }
 
