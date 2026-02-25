@@ -32,7 +32,7 @@ curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/namer
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 
-# Start (sudo is needed for DNS and /etc/hosts)
+# Start (sudo is needed for /etc/hosts management)
 sudo nameroute
 ```
 
@@ -206,9 +206,9 @@ nameroute run http project-b -- next dev
 
 ### Can I use it without sudo?
 
-Yes. Routing works fine without `sudo`. Modern browsers (Chrome, Firefox, Edge, Safari) automatically resolve `*.localhost` to `127.0.0.1`, so browser-based access doesn't need DNS or `/etc/hosts` entries.
+Yes. Routing works fine without `sudo`. Modern browsers (Chrome, Firefox, Edge, Safari) automatically resolve `*.localhost` to `127.0.0.1`, so browser-based access doesn't need `/etc/hosts` entries.
 
-`sudo` is only needed for CLI tools like `curl` and `wget`, or applications that rely on the OS resolver. These tools need either a DNS server or `/etc/hosts` entries to resolve `*.localhost` hostnames.
+`sudo` is only needed for CLI tools like `curl` and `wget`, or server-to-server communication that relies on the OS resolver. These tools need `/etc/hosts` entries to resolve `*.localhost` hostnames.
 
 ### Can I use it with Supabase?
 

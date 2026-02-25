@@ -21,8 +21,6 @@ pub struct Config {
     #[serde(default)]
     pub http: HttpConfig,
     #[serde(default)]
-    pub dns: DnsConfig,
-    #[serde(default)]
     pub discovery: DiscoveryConfig,
     #[serde(default)]
     pub tls: TlsConfig,
@@ -96,14 +94,6 @@ pub struct HttpConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct DnsConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default = "default_dns_bind")]
-    pub bind: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct DiscoveryConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -167,9 +157,6 @@ fn default_max_message_size() -> usize {
 fn default_base_domain() -> String {
     "localhost".to_string()
 }
-fn default_dns_bind() -> String {
-    "127.0.0.1:53".to_string()
-}
 fn default_health_check_interval() -> u64 {
     5
 }
@@ -192,15 +179,6 @@ impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             base_domain: default_base_domain(),
-        }
-    }
-}
-
-impl Default for DnsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_true(),
-            bind: default_dns_bind(),
         }
     }
 }
@@ -308,7 +286,6 @@ impl Default for Config {
             smtp: SmtpConfig::default(),
             routes: Vec::new(),
             http: HttpConfig::default(),
-            dns: DnsConfig::default(),
             discovery: DiscoveryConfig::default(),
             tls: TlsConfig::default(),
             health_check: HealthCheckConfig::default(),

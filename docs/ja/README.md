@@ -38,7 +38,6 @@ name-route は、ポート番号の代わりに「名前」でアクセスでき
 - **静的ルート** — TOML 設定ファイルで Docker を使わないサービスも登録可能
 - **マルチレベルサブドメイン** — `api.myapp.localhost` のような多段サブドメインに対応
 - **設定なしで起動** — デフォルトで全プロトコルのリスナーが立ち上がる。設定ファイルは任意
-- **内蔵 DNS サーバー** — `*.localhost` を自動で `127.0.0.1` に解決（root 時。ブラウザのみなら不要）
 - **/etc/hosts 自動管理** — HTTP ルートに対応するホスト名を自動で追加・削除（root 時。ブラウザのみなら不要）
 - **シングルバイナリ** — 依存なし。1ファイルを置くだけで動作
 
@@ -147,9 +146,9 @@ sudo nameroute
 <details>
 <summary>sudo なしでの利用について</summary>
 
-主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスだけなら `sudo` なしで動作します。DNS や `/etc/hosts` の編集も不要です。
+主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスだけなら `sudo` なしで動作します。`/etc/hosts` の編集も不要です。
 
-`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいはシステムのリゾルバを使うアプリケーションから `*.localhost` にアクセスする場合です。これらは OS の名前解決に依存するため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいはサーバー間通信など OS のリゾルバに依存するアプリケーションから `*.localhost` にアクセスする場合です。これらは `/etc/hosts` へのエントリが必要になります。
 
 </details>
 
@@ -316,9 +315,6 @@ bind = "127.0.0.1:10025"
 
 [http]
 base_domain = "localhost"  # サブドメインの親ドメイン
-
-[dns]
-bind = "127.0.0.1:53"     # DNS サーバーのアドレス
 
 [smtp]
 mailbox_dir = "/var/lib/name-route/mailbox"

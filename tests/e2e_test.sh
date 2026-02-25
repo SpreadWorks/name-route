@@ -82,7 +82,6 @@ PG_PORT=15432
 MYSQL_PORT=13306
 SMTP_PORT=10025
 HTTP_PORT=18080
-DNS_PORT=15353
 POLL_INTERVAL=2
 
 MAILBOX_DIR=$(mktemp -d /tmp/nameroute-e2e-mailbox-XXXXXX)
@@ -117,9 +116,6 @@ bind = "127.0.0.1:$SMTP_PORT"
 
 [http]
 base_domain = "localhost"
-
-[dns]
-bind = "127.0.0.1:$DNS_PORT"
 
 [smtp]
 mailbox_dir = "$MAILBOX_DIR"
@@ -525,69 +521,6 @@ if $HAS_CURL; then
     fi
 else
     echo "  curl not found; skipping HTTP tests"
-fi
-
-# ======================================================================
-#  DNS tests
-# ======================================================================
-echo ""
-echo "=== DNS tests ==="
-
-HAS_DIG=false
-command -v dig &>/dev/null && HAS_DIG=true
-IS_ROOT=false
-[ "$(id -u)" -eq 0 ] && IS_ROOT=true
-
-if $HAS_DIG && $IS_ROOT; then
-    # Test 1: A record for subdomain.localhost
-    echo "-- DNS: A record for dev1.localhost --"
-    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" dev1.localhost A +short 2>/dev/null) || true
-    if [ "$DIG_OUT" = "127.0.0.1" ]; then
-        pass "DNS A record dev1.localhost: 127.0.0.1"
-    else
-        fail "DNS A record dev1.localhost: got '$DIG_OUT'"
-    fi
-
-    # Test 2: A record for arbitrary subdomain
-    echo "-- DNS: A record for anything.localhost --"
-    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" anything.localhost A +short 2>/dev/null) || true
-    if [ "$DIG_OUT" = "127.0.0.1" ]; then
-        pass "DNS A record anything.localhost: 127.0.0.1"
-    else
-        fail "DNS A record anything.localhost: got '$DIG_OUT'"
-    fi
-
-    # Test 3: A record for base domain itself
-    echo "-- DNS: A record for localhost --"
-    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" localhost A +short 2>/dev/null) || true
-    if [ "$DIG_OUT" = "127.0.0.1" ]; then
-        pass "DNS A record localhost: 127.0.0.1"
-    else
-        fail "DNS A record localhost: got '$DIG_OUT'"
-    fi
-
-    # Test 4: AAAA record
-    echo "-- DNS: AAAA record for dev1.localhost --"
-    DIG_OUT=$(dig @127.0.0.1 -p "$DNS_PORT" dev1.localhost AAAA +short 2>/dev/null) || true
-    if [ "$DIG_OUT" = "::1" ]; then
-        pass "DNS AAAA record dev1.localhost: ::1"
-    else
-        fail "DNS AAAA record dev1.localhost: got '$DIG_OUT'"
-    fi
-
-    # Test 5: Non-matching domain returns REFUSED
-    echo "-- DNS: REFUSED for example.com --"
-    DIG_STATUS=$(dig @127.0.0.1 -p "$DNS_PORT" example.com A +short 2>&1) || true
-    DIG_FULL=$(dig @127.0.0.1 -p "$DNS_PORT" example.com A 2>/dev/null) || true
-    if echo "$DIG_FULL" | grep -q "REFUSED"; then
-        pass "DNS example.com: REFUSED"
-    else
-        fail "DNS example.com: expected REFUSED, got '$(echo "$DIG_FULL" | grep status)'"
-    fi
-elif ! $IS_ROOT; then
-    echo "  DNS server requires root; skipping DNS tests"
-else
-    echo "  dig not found; skipping DNS tests"
 fi
 
 # ======================================================================

@@ -32,7 +32,7 @@ curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/namer
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 
-# 起動（sudo は DNS と /etc/hosts に必要）
+# 起動（sudo は /etc/hosts の管理に必要）
 sudo nameroute
 ```
 
@@ -206,9 +206,9 @@ nameroute run http project-b -- next dev
 
 ### Can I use it without sudo?
 
-はい。`sudo` なしでもルーティング自体は問題なく動作します。主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスであれば DNS サーバーも `/etc/hosts` の編集も不要です。
+はい。`sudo` なしでもルーティング自体は問題なく動作します。主要ブラウザ（Chrome, Firefox, Edge, Safari）は `*.localhost` を自動的に `127.0.0.1` に解決するため、ブラウザからのアクセスであれば `/etc/hosts` の編集も不要です。
 
-`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいは OS のシステムリゾルバに依存するアプリケーションから `*.localhost` にアクセスする場合です。これらのツールはブラウザのような独自の名前解決を持たないため、DNS サーバーか `/etc/hosts` へのエントリが必要になります。
+`sudo` が必要になるのは、`curl` や `wget` などの CLI ツール、あるいはサーバー間通信など OS のリゾルバに依存するアプリケーションから `*.localhost` にアクセスする場合です。これらは `/etc/hosts` へのエントリが必要になります。
 
 ### Can I use it with Supabase?
 

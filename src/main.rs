@@ -1,7 +1,6 @@
 mod config;
 mod control;
 mod discovery;
-mod dns;
 mod docker;
 mod error;
 mod health;
@@ -237,7 +236,7 @@ async fn run_server(
     } else {
         info!("name-route starting");
         if !is_root {
-            warn!("Running without root privileges; DNS and /etc/hosts management disabled");
+            warn!("Running without root privileges; /etc/hosts management disabled");
         }
     }
 
@@ -430,20 +429,6 @@ async fn run_server(
         });
     }
 
-    // Spawn DNS server if enabled (root only for port 53)
-    if config.dns.enabled && is_root {
-        let dns_bind = config.dns.bind.clone();
-        let dns_base_domain = config.http.base_domain.clone();
-        let dns_cancel = cancel.clone();
-        tokio::spawn(async move {
-            if let Err(e) = dns::run_dns_server(&dns_bind, &dns_base_domain, dns_cancel).await {
-                error!(error = %e, "DNS server failed");
-            }
-        });
-    } else if !config.dns.enabled {
-        info!("DNS server disabled");
-    }
-
     // Spawn listeners for each configured protocol
     let mut listener_handles = Vec::new();
 
@@ -592,7 +577,7 @@ fn print_banner(config: &Config, is_root: bool) {
 
     if !is_root {
         eprintln!("  WARNING: Running without root privileges.");
-        eprintln!("  DNS server and /etc/hosts management require root.");
+        eprintln!("  /etc/hosts management requires root.");
         eprintln!("  Restart with: sudo nameroute");
         eprintln!();
     }

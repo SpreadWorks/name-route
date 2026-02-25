@@ -35,7 +35,6 @@ No matter what port backends actually listen on, developers only think about nam
 - **Static routes** — Define routes in TOML config for non-Docker services
 - **Multi-level subdomains** — Supports `api.myapp.localhost` style nested subdomains
 - **Zero config startup** — All protocol listeners start by default. Config file is optional
-- **Built-in DNS server** — Resolves `*.localhost` to `127.0.0.1` (when running as root; not needed for browsers)
 - **/etc/hosts management** — Automatically adds/removes hostnames for HTTP routes (when running as root; not needed for browsers)
 - **Single binary** — No dependencies. Drop one file and go
 
@@ -144,9 +143,9 @@ All protocol listeners start with zero configuration. You can also run without `
 <details>
 <summary>Running without sudo</summary>
 
-Modern browsers (Chrome, Firefox, Edge, Safari) automatically resolve `*.localhost` to `127.0.0.1`, so browser-based access works without `sudo` — no DNS or `/etc/hosts` changes needed.
+Modern browsers (Chrome, Firefox, Edge, Safari) automatically resolve `*.localhost` to `127.0.0.1`, so browser-based access works without `sudo` — no `/etc/hosts` changes needed.
 
-`sudo` is only required when accessing `*.localhost` from CLI tools like `curl` or `wget`, or from applications that rely on the OS resolver. These tools need either a DNS server or `/etc/hosts` entries to resolve the hostname.
+`sudo` is only required when accessing `*.localhost` from CLI tools like `curl` or `wget`, or from server-to-server communication that relies on the OS resolver. These tools need `/etc/hosts` entries to resolve the hostname.
 
 </details>
 
@@ -313,9 +312,6 @@ bind = "127.0.0.1:10025"
 
 [http]
 base_domain = "localhost"  # parent domain for subdomains
-
-[dns]
-bind = "127.0.0.1:53"     # DNS server address
 
 [smtp]
 mailbox_dir = "/var/lib/name-route/mailbox"
