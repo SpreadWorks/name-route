@@ -83,6 +83,31 @@ impl Response {
     }
 }
 
+/// Validate a routing key. Only allows hostname-safe characters:
+/// alphanumeric, hyphens, and dots. Must start and end with alphanumeric.
+/// Max length 253 (DNS label limit).
+fn validate_key(key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("routing key must not be empty".into());
+    }
+    if key.len() > 253 {
+        return Err("routing key too long (max 253 characters)".into());
+    }
+    // Must match: starts with alnum, optional middle of alnum/hyphen/dot, ends with alnum
+    // Single character keys (just alnum) are also valid.
+    let valid = key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        && key.as_bytes()[0].is_ascii_alphanumeric()
+        && key.as_bytes()[key.len() - 1].is_ascii_alphanumeric()
+        && !key.contains("..");
+    if !valid {
+        return Err(format!(
+            "invalid routing key '{}': must contain only [a-zA-Z0-9.-], start/end with alphanumeric, no consecutive dots",
+            key
+        ));
+    }
+    Ok(())
+}
+
 // --- Server ---
 
 pub async fn run_control_server(
@@ -180,6 +205,10 @@ async fn handle_request(
             backend,
             tls_mode,
         } => {
+            if let Err(e) = validate_key(&key) {
+                return Response::error(e);
+            }
+
             let (host, port) = match parse_backend(&backend) {
                 Ok(v) => v,
                 Err(e) => return Response::error(e),
@@ -214,6 +243,10 @@ async fn handle_request(
             Response { ok: true, error: None, routes: None, url }
         }
         Request::RemoveRoute { protocol, key } => {
+            if let Err(e) = validate_key(&key) {
+                return Response::error(e);
+            }
+
             let removed = {
                 let mut t = table.write().await;
                 t.remove(protocol, &key)
@@ -339,4 +372,44 @@ pub async fn send_request(port: u16, req: &Request) -> Result<Response, String> 
         .ok_or_else(|| "empty response from daemon".to_string())?;
 
     serde_json::from_str(&line).map_err(|e| format!("invalid response: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_key_valid() {
+        assert!(validate_key("myapp").is_ok());
+        assert!(validate_key("my-app").is_ok());
+        assert!(validate_key("my.app").is_ok());
+        assert!(validate_key("My-App.v2").is_ok());
+        assert!(validate_key("a").is_ok());
+        assert!(validate_key("a1").is_ok());
+        assert!(validate_key("sub.domain.app").is_ok());
+    }
+
+    #[test]
+    fn test_validate_key_invalid() {
+        assert!(validate_key("").is_err());
+        assert!(validate_key("-app").is_err());
+        assert!(validate_key("app-").is_err());
+        assert!(validate_key(".app").is_err());
+        assert!(validate_key("app.").is_err());
+        assert!(validate_key("my app").is_err());
+        assert!(validate_key("my\napp").is_err());
+        assert!(validate_key("my\tapp").is_err());
+        assert!(validate_key("../../etc").is_err());
+        assert!(validate_key("app..test").is_err());
+        assert!(validate_key("app/test").is_err());
+        assert!(validate_key("evil\r\n127.0.0.1 attacker.com").is_err());
+    }
+
+    #[test]
+    fn test_validate_key_length_limit() {
+        let long_key = "a".repeat(253);
+        assert!(validate_key(&long_key).is_ok());
+        let too_long = "a".repeat(254);
+        assert!(validate_key(&too_long).is_err());
+    }
 }
