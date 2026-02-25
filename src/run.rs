@@ -34,10 +34,26 @@ async fn run_port_mode(
     tls_mode: Option<TlsMode>,
     command: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Bind to port 0 to get an available port, then drop the listener
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
+    // Try to reuse port from existing route for the same protocol+key
+    let port = match find_existing_port(protocol, &key).await {
+        Some(p) if port_is_available(p) => {
+            eprintln!("nameroute: reusing existing port {} for {}:{}", p, protocol, key);
+            p
+        }
+        Some(p) => {
+            eprintln!("nameroute: port {} is in use, allocating new port", p);
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let new_p = listener.local_addr()?.port();
+            drop(listener);
+            new_p
+        }
+        None => {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let p = listener.local_addr()?.port();
+            drop(listener);
+            p
+        }
+    };
 
     let backend = format!("127.0.0.1:{}", port);
     let port_str = port.to_string();
@@ -243,6 +259,23 @@ async fn cleanup_route(protocol: ProtocolKind, key: &str) {
             eprintln!("nameroute: warning: failed to remove route: {}", e);
         }
     }
+}
+
+fn port_is_available(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+async fn find_existing_port(protocol: ProtocolKind, key: &str) -> Option<u16> {
+    let resp = control::send_request(&Request::ListRoutes).await.ok()?;
+    let routes = resp.routes?;
+    for route in routes {
+        if route.protocol == protocol && route.key == key {
+            // Parse port from "host:port" backend string
+            let port_str = route.backend.rsplit_once(':')?.1;
+            return port_str.parse().ok();
+        }
+    }
+    None
 }
 
 fn send_signal_to_child(child: &tokio::process::Child) {
