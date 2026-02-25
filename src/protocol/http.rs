@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, copy_bidirectional};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tracing::{debug, info};
@@ -39,7 +39,7 @@ impl ProtocolHandler for HttpHandler {
 /// `protocol_kind` determines which protocol to use for routing table lookup
 /// (Http for plain HTTP, Https for TLS-terminated HTTPS).
 pub(crate) async fn handle_http_stream<S>(
-    mut client: S,
+    client: S,
     peer: SocketAddr,
     routing_table: &SharedRoutingTable,
     config_rx: &watch::Receiver<Config>,
@@ -55,29 +55,35 @@ where
 
     // Read request line + headers into buffer until \r\n\r\n
     let mut buf = Vec::with_capacity(4096);
-    let mut tmp = [0u8; 1];
+    let mut buf_reader = BufReader::new(client);
     let header_end;
 
     loop {
-        let n = client.read(&mut tmp).await?;
-        if n == 0 {
+        let available = buf_reader.fill_buf().await?;
+        if available.is_empty() {
             return Ok(());
         }
-        buf.push(tmp[0]);
+
+        // Search for \r\n\r\n in the combined existing buf + new data
+        let prev_len = buf.len();
+        buf.extend_from_slice(available);
+        let consumed = available.len();
+        buf_reader.consume(consumed);
 
         if buf.len() > MAX_HEADER_SIZE {
-            send_response(&mut client, 431, "Request Header Fields Too Large", "Headers too large").await?;
+            send_response(buf_reader.get_mut(), 431, "Request Header Fields Too Large", "Headers too large").await?;
             return Ok(());
         }
 
-        // Check for \r\n\r\n at end of buffer
-        if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
-            header_end = buf.len();
+        // Search for \r\n\r\n starting from where it could first appear
+        let search_start = if prev_len >= 3 { prev_len - 3 } else { 0 };
+        if let Some(pos) = buf[search_start..].windows(4).position(|w| w == b"\r\n\r\n") {
+            header_end = search_start + pos + 4;
             break;
         }
     }
 
-    // Parse Host header from the buffer
+    // Parse Host header from the header portion of the buffer
     let header_str = String::from_utf8_lossy(&buf[..header_end]);
     let host_value = header_str
         .lines()
@@ -90,7 +96,7 @@ where
     let host = match &host_value {
         Some(h) => h.as_str(),
         None => {
-            send_response(&mut client, 400, "Bad Request", "Missing Host header").await?;
+            send_response(buf_reader.get_mut(), 400, "Bad Request", "Missing Host header").await?;
             return Ok(());
         }
     };
@@ -102,7 +108,7 @@ where
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            send_response(&mut client, 404, "Not Found", "No subdomain specified").await?;
+            send_response(buf_reader.get_mut(), 404, "Not Found", "No subdomain specified").await?;
             return Ok(());
         }
     };
@@ -119,7 +125,7 @@ where
         None => {
             info!(peer = %peer, key = %key, "HTTP backend not found");
             send_response(
-                &mut client,
+                buf_reader.get_mut(),
                 502,
                 "Bad Gateway",
                 &format!("No backend for '{}'", key),
@@ -137,10 +143,11 @@ where
     );
 
     // Connect to backend and relay
-    // Send the already-read headers, then bidirectional copy for the rest
+    // Send the already-read data (headers + any extra body bytes), then bidirectional copy
     let mut backend_stream = proxy::connect_backend(&backend, &config.backend).await?;
     backend_stream.write_all(&buf).await?;
 
+    let mut client = buf_reader.into_inner();
     match copy_bidirectional(&mut client, &mut backend_stream).await {
         Ok((c2b, b2c)) => {
             debug!(
