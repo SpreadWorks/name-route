@@ -72,6 +72,18 @@ pub fn new_shared_routing_table() -> SharedRoutingTable {
     Arc::new(RwLock::new(RoutingTable::new()))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthStatus {
+    Healthy,
+    Unhealthy,
+}
+
+pub type SharedHealthMap = Arc<RwLock<HashMap<(ProtocolKind, String), HealthStatus>>>;
+
+pub fn new_shared_health_map() -> SharedHealthMap {
+    Arc::new(RwLock::new(HashMap::new()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

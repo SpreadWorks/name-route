@@ -4,6 +4,7 @@ mod discovery;
 mod dns;
 mod docker;
 mod error;
+mod health;
 mod hosts;
 mod listener;
 mod protocol;
@@ -112,8 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("No routes registered.");
                 } else {
                     println!(
-                        "{:<12} {:<20} {:<25} {:<8} {}",
-                        "PROTOCOL", "KEY", "BACKEND", "SOURCE", "URL"
+                        "{:<12} {:<20} {:<25} {:<8} {:<10} {}",
+                        "PROTOCOL", "KEY", "BACKEND", "SOURCE", "HEALTH", "URL"
                     );
                     for r in &routes {
                         let url = match r.protocol {
@@ -121,9 +122,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ProtocolKind::Https => format!("https://{}.localhost:8443", r.key),
                             _ => String::new(),
                         };
+                        let health = r.health.as_deref().unwrap_or("-");
                         println!(
-                            "{:<12} {:<20} {:<25} {:<8} {}",
-                            r.protocol, r.key, r.backend, r.source, url
+                            "{:<12} {:<20} {:<25} {:<8} {:<10} {}",
+                            r.protocol, r.key, r.backend, r.source, health, url
                         );
                     }
                 }
@@ -246,6 +248,7 @@ async fn run_server(
     let cancel = CancellationToken::new();
 
     let routing_table = router::new_shared_routing_table();
+    let health_map = router::new_shared_health_map();
 
     // Load static routes from TOML [[routes]]
     {
@@ -389,6 +392,17 @@ async fn run_server(
         info!("Docker integration disabled");
     }
 
+    // Spawn health check polling loop
+    if config.health_check.enabled {
+        let hc_table = routing_table.clone();
+        let hc_map = health_map.clone();
+        let hc_config_rx = config_rx.clone();
+        let hc_cancel = cancel.clone();
+        tokio::spawn(async move {
+            health::polling_loop(hc_table, hc_map, hc_config_rx, hc_cancel).await;
+        });
+    }
+
     // Update /etc/hosts with HTTP route entries (root only)
     if is_root {
         let table = routing_table.read().await;
@@ -408,10 +422,11 @@ async fn run_server(
     // Spawn control socket server
     {
         let ctrl_table = routing_table.clone();
+        let ctrl_health_map = health_map.clone();
         let ctrl_base_domain = config.http.base_domain.clone();
         let ctrl_cancel = cancel.clone();
         tokio::spawn(async move {
-            control::run_control_server(ctrl_table, ctrl_base_domain, ctrl_cancel).await;
+            control::run_control_server(ctrl_table, ctrl_health_map, ctrl_base_domain, ctrl_cancel).await;
         });
     }
 

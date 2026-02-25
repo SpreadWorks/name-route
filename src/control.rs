@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use tracing::{error, info, warn};
 
 use crate::hosts;
 use crate::protocol::{ProtocolKind, TlsMode};
-use crate::router::{Backend, SharedRoutingTable};
+use crate::router::{Backend, HealthStatus, SharedHealthMap, SharedRoutingTable};
 
 const DEFAULT_SOCKET_PATH: &str = "/tmp/nameroute.sock";
 
@@ -51,6 +52,8 @@ pub struct RouteEntry {
     pub source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_mode: Option<TlsMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<String>,
 }
 
 impl Response {
@@ -75,6 +78,7 @@ impl Response {
 
 pub async fn run_control_server(
     table: SharedRoutingTable,
+    health_map: SharedHealthMap,
     base_domain: String,
     cancel: CancellationToken,
 ) {
@@ -93,6 +97,11 @@ pub async fn run_control_server(
         }
     };
 
+    // Allow non-root users to connect (for list, status, add, remove commands)
+    if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)) {
+        warn!(error = %e, path = %path, "Failed to set control socket permissions");
+    }
+
     info!(path = %path, "Control socket listening");
 
     loop {
@@ -102,9 +111,10 @@ pub async fn run_control_server(
                 match result {
                     Ok((stream, _)) => {
                         let table = table.clone();
+                        let health_map = health_map.clone();
                         let base_domain = base_domain.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, table, &base_domain).await {
+                            if let Err(e) = handle_connection(stream, table, health_map, &base_domain).await {
                                 warn!(error = %e, "Control connection error");
                             }
                         });
@@ -125,6 +135,7 @@ pub async fn run_control_server(
 async fn handle_connection(
     stream: UnixStream,
     table: SharedRoutingTable,
+    health_map: SharedHealthMap,
     base_domain: &str,
 ) -> std::io::Result<()> {
     let (reader, mut writer) = stream.into_split();
@@ -132,7 +143,7 @@ async fn handle_connection(
 
     while let Some(line) = lines.next_line().await? {
         let response = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => handle_request(req, &table, base_domain).await,
+            Ok(req) => handle_request(req, &table, &health_map, base_domain).await,
             Err(e) => Response::error(format!("invalid request: {}", e)),
         };
 
@@ -147,6 +158,7 @@ async fn handle_connection(
 async fn handle_request(
     req: Request,
     table: &SharedRoutingTable,
+    health_map: &SharedHealthMap,
     base_domain: &str,
 ) -> Response {
     match req {
@@ -202,6 +214,7 @@ async fn handle_request(
         }
         Request::ListRoutes => {
             let t = table.read().await;
+            let hm = health_map.read().await;
             let routes: Vec<RouteEntry> = t
                 .entries()
                 .map(|((protocol, key), backend)| {
@@ -215,12 +228,17 @@ async fn handle_request(
                     } else {
                         None
                     };
+                    let health = hm.get(&(*protocol, key.clone())).map(|s| match s {
+                        HealthStatus::Healthy => "healthy".to_string(),
+                        HealthStatus::Unhealthy => "unhealthy".to_string(),
+                    });
                     RouteEntry {
                         protocol: *protocol,
                         key: key.clone(),
                         backend: addr,
                         source: backend.source.clone(),
                         tls_mode,
+                        health,
                     }
                 })
                 .collect();
@@ -258,7 +276,7 @@ pub async fn send_request(req: &Request) -> Result<Response, String> {
     let stream = UnixStream::connect(&path)
         .await
         .map_err(|_| format!(
-            "daemon is not running (failed to connect to {}). Start with: sudo nameroute",
+            "daemon is not running (failed to connect to {}). Start with: nameroute serve",
             path
         ))?;
 

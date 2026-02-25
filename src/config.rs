@@ -26,6 +26,8 @@ pub struct Config {
     pub discovery: DiscoveryConfig,
     #[serde(default)]
     pub tls: TlsConfig,
+    #[serde(default)]
+    pub health_check: HealthCheckConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,6 +121,16 @@ pub struct TlsConfig {
     pub key: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct HealthCheckConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_health_check_interval")]
+    pub interval: u64,
+    #[serde(default = "default_health_check_timeout")]
+    pub timeout: u64,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -157,6 +169,12 @@ fn default_base_domain() -> String {
 }
 fn default_dns_bind() -> String {
     "127.0.0.1:53".to_string()
+}
+fn default_health_check_interval() -> u64 {
+    5
+}
+fn default_health_check_timeout() -> u64 {
+    2
 }
 impl Default for DockerConfig {
     fn default() -> Self {
@@ -235,6 +253,16 @@ impl Default for TlsConfig {
     }
 }
 
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            interval: default_health_check_interval(),
+            timeout: default_health_check_timeout(),
+        }
+    }
+}
+
 fn default_listeners() -> HashMap<String, ListenerConfig> {
     let mut m = HashMap::new();
     m.insert("postgres".to_string(), ListenerConfig {
@@ -283,6 +311,7 @@ impl Default for Config {
             dns: DnsConfig::default(),
             discovery: DiscoveryConfig::default(),
             tls: TlsConfig::default(),
+            health_check: HealthCheckConfig::default(),
         }
     }
 }

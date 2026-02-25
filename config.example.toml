@@ -66,6 +66,12 @@ bind = "127.0.0.1:53"
 # cert = "cert.pem"
 # key = "key.pem"
 
+# --- Health check ---
+[health_check]
+enabled = true                        # false to disable health checks
+interval = 5                          # seconds between checks
+timeout = 2                           # seconds to wait for TCP connect
+
 # --- SMTP settings ---
 [smtp]
 mailbox_dir = "/var/lib/name-route/mailbox"
