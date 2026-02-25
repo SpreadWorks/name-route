@@ -44,6 +44,10 @@ struct Cli {
     #[arg(short, long, global = true)]
     config: Option<PathBuf>,
 
+    /// Management port for CLI <-> daemon communication
+    #[arg(short = 'm', long = "management-port", global = true)]
+    management_port: Option<u16>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -98,6 +102,10 @@ enum Commands {
     },
 }
 
+fn resolve_management_port(cli_port: Option<u16>) -> u16 {
+    cli_port.unwrap_or_else(control::management_port)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Install the ring CryptoProvider for rustls (required by rustls 0.23+)
@@ -108,10 +116,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        None => run_server(cli.config, true).await,
-        Some(Commands::Serve) => run_server(cli.config, false).await,
+        None => run_server(cli.config, cli.management_port, true).await,
+        Some(Commands::Serve) => run_server(cli.config, cli.management_port, false).await,
         Some(Commands::List) => {
-            let resp = control::send_request(&control::Request::ListRoutes)
+            let mgmt_port = resolve_management_port(cli.management_port);
+            let resp = control::send_request(mgmt_port, &control::Request::ListRoutes)
                 .await
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             if let Some(routes) = resp.routes {
@@ -140,10 +149,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             backend,
             tls_mode,
         }) => {
+            let mgmt_port = resolve_management_port(cli.management_port);
             let protocol: ProtocolKind = protocol
                 .parse()
                 .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
-            let resp = control::send_request(&control::Request::AddRoute {
+            let resp = control::send_request(mgmt_port, &control::Request::AddRoute {
                 protocol,
                 key: key.clone(),
                 backend: backend.clone(),
@@ -163,10 +173,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some(Commands::Remove { protocol, key }) => {
+            let mgmt_port = resolve_management_port(cli.management_port);
             let protocol: ProtocolKind = protocol
                 .parse()
                 .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
-            let resp = control::send_request(&control::Request::RemoveRoute {
+            let resp = control::send_request(mgmt_port, &control::Request::RemoveRoute {
                 protocol,
                 key: key.clone(),
             })
@@ -184,7 +195,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some(Commands::Status) => {
-            match control::send_request(&control::Request::ListRoutes).await {
+            let mgmt_port = resolve_management_port(cli.management_port);
+            match control::send_request(mgmt_port, &control::Request::ListRoutes).await {
                 Ok(resp) => {
                     if resp.ok {
                         let count = resp.routes.map(|r| r.len()).unwrap_or(0);
@@ -211,12 +223,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             port_env,
             tls_mode,
             command,
-        }) => run::cmd_run(protocol, key, detect_port, port_env, tls_mode, command).await,
+        }) => {
+            let mgmt_port = resolve_management_port(cli.management_port);
+            run::cmd_run(protocol, key, detect_port, port_env, tls_mode, command, mgmt_port).await
+        }
     }
 }
 
 async fn run_server(
     config_path: Option<PathBuf>,
+    cli_port: Option<u16>,
     foreground: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
@@ -224,6 +240,8 @@ async fn run_server(
         Some(path) => Config::load(path)?,
         None => Config::default(),
     };
+
+    let mgmt_port = cli_port.unwrap_or(config.general.management_port);
 
     let is_root = nix::unistd::geteuid().is_root();
 
@@ -235,7 +253,7 @@ async fn run_server(
     }
 
     if foreground {
-        print_banner(&config, is_root);
+        print_banner(&config, mgmt_port, is_root);
     } else {
         info!("name-route starting");
         if !is_root {
@@ -450,7 +468,7 @@ async fn run_server(
         signal::signal_handler(signal_config_path, config_tx, signal_cancel).await;
     });
 
-    // Spawn control socket server
+    // Spawn management server
     {
         let ctrl_table = routing_table.clone();
         let ctrl_health_map = health_map.clone();
@@ -467,7 +485,7 @@ async fn run_server(
         }
         let ctrl_cancel = cancel.clone();
         tokio::spawn(async move {
-            control::run_control_server(ctrl_table, ctrl_health_map, ctrl_base_domain, ctrl_tls_cert, ctrl_tls_key, listener_ports, ctrl_cancel).await;
+            control::run_control_server(mgmt_port, ctrl_table, ctrl_health_map, ctrl_base_domain, ctrl_tls_cert, ctrl_tls_key, listener_ports, ctrl_cancel).await;
         });
     }
 
@@ -604,7 +622,7 @@ async fn run_server(
     Ok(())
 }
 
-fn print_banner(config: &Config, is_root: bool) {
+fn print_banner(config: &Config, mgmt_port: u16, is_root: bool) {
     eprintln!("{}", BANNER);
     eprintln!("  version  {}", VERSION);
     eprintln!();
@@ -619,6 +637,7 @@ fn print_banner(config: &Config, is_root: bool) {
         }
         eprintln!("  {:<12} {}", lc.protocol, lc.bind);
     }
+    eprintln!("  {:<12} 127.0.0.1:{}", "management", mgmt_port);
     eprintln!();
 
     if !is_root {

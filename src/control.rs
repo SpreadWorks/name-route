@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -14,10 +12,13 @@ use crate::hosts;
 use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, HealthStatus, SharedHealthMap, SharedRoutingTable};
 
-const DEFAULT_SOCKET_PATH: &str = "/tmp/nameroute.sock";
+pub const DEFAULT_MANAGEMENT_PORT: u16 = 14321;
 
-pub fn socket_path() -> String {
-    std::env::var("NAMEROUTE_SOCKET").unwrap_or_else(|_| DEFAULT_SOCKET_PATH.to_string())
+pub fn management_port() -> u16 {
+    std::env::var("NAMEROUTE_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MANAGEMENT_PORT)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,6 +86,7 @@ impl Response {
 // --- Server ---
 
 pub async fn run_control_server(
+    port: u16,
     table: SharedRoutingTable,
     health_map: SharedHealthMap,
     base_domain: String,
@@ -93,27 +95,19 @@ pub async fn run_control_server(
     listener_ports: HashMap<ProtocolKind, u16>,
     cancel: CancellationToken,
 ) {
-    let path = socket_path();
-
-    // Remove stale socket
-    if Path::new(&path).exists() {
-        let _ = std::fs::remove_file(&path);
-    }
-
-    let listener = match UnixListener::bind(&path) {
+    let listener = match TcpListener::bind(("127.0.0.1", port)).await {
         Ok(l) => l,
         Err(e) => {
-            error!(error = %e, path = %path, "Failed to bind control socket");
+            if e.kind() == std::io::ErrorKind::AddrInUse {
+                error!(port = port, "Management port already in use — is another daemon running?");
+            } else {
+                error!(error = %e, port = port, "Failed to bind management port");
+            }
             return;
         }
     };
 
-    // Allow non-root users to connect (for list, status, add, remove commands)
-    if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)) {
-        warn!(error = %e, path = %path, "Failed to set control socket permissions");
-    }
-
-    info!(path = %path, "Control socket listening");
+    info!(port = port, "Management server listening");
 
     loop {
         tokio::select! {
@@ -129,25 +123,23 @@ pub async fn run_control_server(
                         let listener_ports = listener_ports.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handle_connection(stream, table, health_map, &base_domain, &tls_cert, &tls_key, &listener_ports).await {
-                                warn!(error = %e, "Control connection error");
+                                warn!(error = %e, "Management connection error");
                             }
                         });
                     }
                     Err(e) => {
-                        warn!(error = %e, "Control socket accept error");
+                        warn!(error = %e, "Management server accept error");
                     }
                 }
             }
         }
     }
 
-    // Cleanup socket on shutdown
-    let _ = std::fs::remove_file(&path);
-    info!("Control socket stopped");
+    info!("Management server stopped");
 }
 
 async fn handle_connection(
-    stream: UnixStream,
+    stream: TcpStream,
     table: SharedRoutingTable,
     health_map: SharedHealthMap,
     base_domain: &str,
@@ -316,14 +308,14 @@ fn parse_backend(s: &str) -> Result<(IpAddr, u16), String> {
 
 // --- Client ---
 
-pub async fn send_request(req: &Request) -> Result<Response, String> {
-    let path = socket_path();
+pub async fn send_request(port: u16, req: &Request) -> Result<Response, String> {
+    let addr = format!("127.0.0.1:{}", port);
 
-    let stream = UnixStream::connect(&path)
+    let stream = TcpStream::connect(&addr)
         .await
         .map_err(|_| format!(
             "daemon is not running (failed to connect to {}). Start with: nameroute serve",
-            path
+            addr
         ))?;
 
     let (reader, mut writer) = stream.into_split();

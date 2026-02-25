@@ -1,6 +1,7 @@
 [general]
 log_level = "info"                    # ERROR/WARN/INFO/DEBUG
 manage_hosts = true                   # false to disable /etc/hosts management
+management_port = 14321               # TCP port for CLI <-> daemon communication
 # Privilege drop (optional)
 # After binding to privileged ports, drop privileges to the specified user/group.
 # Note: /etc/hosts management will be disabled after dropping privileges.

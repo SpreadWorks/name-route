@@ -36,6 +36,8 @@ pub struct GeneralConfig {
     pub manage_hosts: bool,
     pub run_as_user: Option<String>,
     pub run_as_group: Option<String>,
+    #[serde(default = "default_management_port")]
+    pub management_port: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -165,6 +167,9 @@ fn default_health_check_interval() -> u64 {
 fn default_health_check_timeout() -> u64 {
     2
 }
+fn default_management_port() -> u16 {
+    14321
+}
 impl Default for DockerConfig {
     fn default() -> Self {
         Self {
@@ -202,6 +207,7 @@ impl Default for GeneralConfig {
             manage_hosts: default_true(),
             run_as_user: None,
             run_as_group: None,
+            management_port: default_management_port(),
         }
     }
 }
