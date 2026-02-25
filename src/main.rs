@@ -482,19 +482,15 @@ async fn run_server(
                 }));
             }
             ProtocolKind::Https => {
-                // Create TLS acceptor only if terminate mode might be needed
-                let needs_terminate = listener_config.tls_mode == Some(TlsMode::Terminate)
-                    || config.routes.iter().any(|r| {
-                        r.protocol == ProtocolKind::Https
-                            && r.tls_mode == Some(TlsMode::Terminate)
-                    });
-
-                let tls_acceptor = if needs_terminate {
+                // Create TLS acceptor if cert/key are configured.
+                // This is needed for terminate mode (static routes or
+                // dynamically added via `nameroute run --tls-mode terminate`).
+                let tls_acceptor = if config.tls.cert.is_some() && config.tls.key.is_some() {
                     match tls::create_tls_acceptor(&config.tls) {
                         Ok(a) => Some(a),
                         Err(e) => {
                             error!(listener = %name, error = %e, "Failed to create TLS acceptor");
-                            continue;
+                            None
                         }
                     }
                 } else {

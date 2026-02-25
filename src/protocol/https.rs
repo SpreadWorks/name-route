@@ -4,7 +4,7 @@ use tokio::io::{AsyncWriteExt, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio_rustls::TlsAcceptor;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::error::Result;
@@ -101,7 +101,7 @@ impl ProtocolHandler for HttpsHandler {
                 let tls_acceptor = match &self.tls_acceptor {
                     Some(a) => a.clone(),
                     None => {
-                        info!(peer = %peer, "TLS terminate requested but no TLS acceptor configured");
+                        warn!(peer = %peer, "TLS terminate requested but no TLS acceptor configured. Add [tls] cert/key to config.");
                         return Ok(());
                     }
                 };
