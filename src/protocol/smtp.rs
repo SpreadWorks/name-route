@@ -275,10 +275,11 @@ async fn receive_data(
     Ok(true)
 }
 
-/// Extract domain from RCPT TO:<user@domain> or similar.
+/// Extract and sanitize domain from RCPT TO:<user@domain> or similar.
+/// Returns "unknown" if the domain is missing or contains unsafe characters.
 fn extract_domain(rcpt_line: &str) -> String {
     // Find the part after @
-    if let Some(at_pos) = rcpt_line.rfind('@') {
+    let raw = if let Some(at_pos) = rcpt_line.rfind('@') {
         let after_at = &rcpt_line[at_pos + 1..];
         // Strip trailing > and whitespace
         after_at
@@ -286,8 +287,25 @@ fn extract_domain(rcpt_line: &str) -> String {
             .trim()
             .to_lowercase()
     } else {
-        "unknown".to_string()
+        return "unknown".to_string();
+    };
+
+    // Sanitize: only allow alphanumeric, hyphens, and dots.
+    // Reject empty, path traversal (..), or any other unsafe characters.
+    if raw.is_empty()
+        || raw.contains("..")
+        || !raw.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+    {
+        return "unknown".to_string();
     }
+
+    // Strip leading/trailing dots
+    let sanitized = raw.trim_matches('.');
+    if sanitized.is_empty() {
+        return "unknown".to_string();
+    }
+
+    sanitized.to_string()
 }
 
 #[cfg(test)]
@@ -309,5 +327,33 @@ mod tests {
             "mail.example.com"
         );
         assert_eq!(extract_domain("RCPT TO:<user>"), "unknown");
+    }
+
+    #[test]
+    fn test_extract_domain_path_traversal() {
+        assert_eq!(
+            extract_domain("RCPT TO:<user@../../etc>"),
+            "unknown"
+        );
+        assert_eq!(
+            extract_domain("RCPT TO:<user@..>"),
+            "unknown"
+        );
+        assert_eq!(
+            extract_domain("RCPT TO:<user@foo/../bar>"),
+            "unknown"
+        );
+        assert_eq!(
+            extract_domain("RCPT TO:<user@evil/path>"),
+            "unknown"
+        );
+        assert_eq!(
+            extract_domain("RCPT TO:<user@evil space>"),
+            "unknown"
+        );
+        assert_eq!(
+            extract_domain("RCPT TO:<user@evil\nnewline>"),
+            "unknown"
+        );
     }
 }
