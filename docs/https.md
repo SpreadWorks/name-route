@@ -34,15 +34,27 @@ brew install mkcert  # macOS
 # apt install mkcert  # Linux
 
 # Install the local CA
-mkcert -install
+sudo mkcert -install
 
 # Generate a wildcard certificate
-mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
+sudo mkdir -p /etc/nameroute
+sudo mkcert -key-file /etc/nameroute/key.pem \
+            -cert-file /etc/nameroute/cert.pem \
+            "*.localhost"
 ```
 
-> **Tip:** If you use multi-level subdomains (e.g. `api.myapp.localhost`), add them to the certificate:
+> **Why sudo?** mkcert stores its CA per user (`~/.local/share/mkcert/`). If you run `mkcert -install` as a regular user but generate certificates with `sudo mkcert`, the CA that signed the certificate won't match the one trusted by the browser. Always use `sudo` for all mkcert commands to keep the CA consistent.
+
+> **Tip:** The daemon automatically tracks which wildcard patterns are needed in `/etc/nameroute/domains`.
+> When a multi-level subdomain route is registered (e.g. `frontend.echub`), the daemon appends `*.echub.localhost` to the file and logs a certificate regeneration command.
+>
+> To regenerate the certificate covering all patterns:
 > ```bash
-> mkcert -key-file key.pem -cert-file cert.pem "*.localhost" "*.myapp.localhost"
+> sudo xargs mkcert \
+>   -key-file /etc/nameroute/key.pem \
+>   -cert-file /etc/nameroute/cert.pem \
+>   < /etc/nameroute/domains
+> sudo systemctl restart nameroute
 > ```
 
 ### 2. Configure
@@ -51,8 +63,8 @@ Add a TLS section to your config file:
 
 ```toml
 [tls]
-cert = "cert.pem"
-key = "key.pem"
+cert = "/etc/nameroute/cert.pem"
+key = "/etc/nameroute/key.pem"
 ```
 
 ### 3. Use with `nameroute run`
@@ -83,8 +95,8 @@ Set `tls_mode = "terminate"` on the route:
 
 ```toml
 [tls]
-cert = "cert.pem"
-key = "key.pem"
+cert = "/etc/nameroute/cert.pem"
+key = "/etc/nameroute/key.pem"
 
 [[routes]]
 protocol = "https"

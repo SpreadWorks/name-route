@@ -85,7 +85,7 @@ https://localhost:<port>
 nameroute run https myapp --tls-mode terminate -- next dev --port '$PORT'
 ```
 
-daemon の設定ファイルに `[tls]` セクションが必要です。セットアップは [HTTPS](https.md) を参照してください。
+daemon の設定ファイルに `[tls]` セクション（証明書・鍵のパス、例: `/etc/nameroute/cert.pem`, `/etc/nameroute/key.pem`）が必要です。セットアップは [HTTPS](https.md) を参照してください。
 
 `--tls-mode` を省略すると passthrough モードになり、バックエンド自身が TLS を処理する必要があります。
 

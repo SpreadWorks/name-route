@@ -34,15 +34,27 @@ brew install mkcert  # macOS
 # apt install mkcert  # Linux
 
 # ローカル CA をインストール
-mkcert -install
+sudo mkcert -install
 
 # ワイルドカード証明書を生成
-mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
+sudo mkdir -p /etc/nameroute
+sudo mkcert -key-file /etc/nameroute/key.pem \
+            -cert-file /etc/nameroute/cert.pem \
+            "*.localhost"
 ```
 
-> **Tip:** マルチレベルサブドメイン（例: `api.myapp.localhost`）を使う場合は証明書に追加してください:
+> **なぜ sudo？** mkcert は CA をユーザーごとに保存します（`~/.local/share/mkcert/`）。`mkcert -install` を一般ユーザーで実行し、証明書生成を `sudo mkcert` で行うと、証明書の署名 CA とブラウザが信頼する CA が食い違います。全ての mkcert コマンドを `sudo` で統一してください。
+
+> **Tip:** daemon はルート登録時に必要なワイルドカードパターンを `/etc/nameroute/domains` に自動追記します。
+> マルチレベルサブドメイン（例: `frontend.echub`）のルートが登録されると、`*.echub.localhost` がファイルに追加され、証明書再生成コマンドがログに出力されます。
+>
+> 全パターンをカバーする証明書を再生成するには:
 > ```bash
-> mkcert -key-file key.pem -cert-file cert.pem "*.localhost" "*.myapp.localhost"
+> sudo xargs mkcert \
+>   -key-file /etc/nameroute/key.pem \
+>   -cert-file /etc/nameroute/cert.pem \
+>   < /etc/nameroute/domains
+> sudo systemctl restart nameroute
 > ```
 
 ### 2. 設定ファイル
@@ -51,8 +63,8 @@ mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
 
 ```toml
 [tls]
-cert = "cert.pem"
-key = "key.pem"
+cert = "/etc/nameroute/cert.pem"
+key = "/etc/nameroute/key.pem"
 ```
 
 ### 3. `nameroute run` で使う
@@ -83,8 +95,8 @@ curl ──tls──▶ nameroute:8443 ──http──▶ next:$PORT (HTTP)
 
 ```toml
 [tls]
-cert = "cert.pem"
-key = "key.pem"
+cert = "/etc/nameroute/cert.pem"
+key = "/etc/nameroute/key.pem"
 
 [[routes]]
 protocol = "https"

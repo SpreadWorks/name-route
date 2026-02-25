@@ -85,7 +85,7 @@ Use `--tls-mode terminate` to run HTTPS routes where name-route handles TLS term
 nameroute run https myapp --tls-mode terminate -- next dev --port '$PORT'
 ```
 
-This requires a `[tls]` section in the daemon's config. See [HTTPS](https.md) for setup.
+This requires a `[tls]` section in the daemon's config with paths to the certificate and key (e.g. `/etc/nameroute/cert.pem` and `/etc/nameroute/key.pem`). See [HTTPS](https.md) for setup.
 
 Without `--tls-mode`, passthrough mode is used and the backend must serve TLS itself.
 
