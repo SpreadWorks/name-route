@@ -54,13 +54,15 @@ base_domain = "localhost"
 
 # --- TLS settings (for terminate mode) ---
 # Only needed when using tls_mode = "terminate".
-# Generate certs with mkcert:
-#   mkcert -install
-#   mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
+# Generate certs with mkcert (always use sudo to keep the CA consistent):
+#   sudo mkcert -install
+#   sudo mkcert -key-file /etc/nameroute/key.pem \
+#          -cert-file /etc/nameroute/cert.pem \
+#          "*.localhost"
 #
 # [tls]
-# cert = "cert.pem"
-# key = "key.pem"
+# cert = "/etc/nameroute/cert.pem"
+# key = "/etc/nameroute/key.pem"
 
 # --- Health check ---
 [health_check]

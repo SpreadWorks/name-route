@@ -10,6 +10,8 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
 
+use x509_parser::prelude::*;
+
 use crate::config::TlsConfig;
 use crate::error::{Error, Result};
 
@@ -51,6 +53,70 @@ pub fn create_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor> {
         .map_err(|e| Error::Config(format!("Failed to build TLS config: {}", e)))?;
 
     Ok(TlsAcceptor::from(Arc::new(config)))
+}
+
+/// Extract SAN DNS names from a PEM certificate file.
+pub fn extract_san_dns_names_from_pem(tls_config: &TlsConfig) -> Vec<String> {
+    let cert_path = match tls_config.cert.as_deref() {
+        Some(p) => p,
+        None => return vec![],
+    };
+    let cert_pem = match fs::read(cert_path) {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+    let certs: Vec<CertificateDer> = match rustls_pemfile::certs(&mut &*cert_pem)
+        .collect::<std::result::Result<Vec<_>, _>>()
+    {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    if let Some(cert) = certs.first() {
+        extract_san_dns_names(cert.as_ref())
+    } else {
+        vec![]
+    }
+}
+
+/// Extract SAN (DNS) entries from a DER-encoded certificate.
+pub fn extract_san_dns_names(cert_der: &[u8]) -> Vec<String> {
+    let (_, cert) = match X509Certificate::from_der(cert_der) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+
+    let mut names = Vec::new();
+    for ext in cert.extensions() {
+        if let ParsedExtension::SubjectAlternativeName(san) = ext.parsed_extension() {
+            for name in &san.general_names {
+                if let GeneralName::DNSName(dns) = name {
+                    names.push(dns.to_string());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Check if an SNI hostname matches any SAN pattern.
+/// Wildcard matching: "*.localhost" matches "foo.localhost" but not "a.b.localhost".
+pub fn matches_san(sni: &str, san_list: &[String]) -> bool {
+    let sni_lower = sni.to_lowercase();
+    for pattern in san_list {
+        let pat_lower = pattern.to_lowercase();
+        if pat_lower == sni_lower {
+            return true;
+        }
+        if let Some(suffix) = pat_lower.strip_prefix("*.") {
+            // Wildcard: match exactly one level
+            if let Some(prefix) = sni_lower.strip_suffix(&format!(".{}", suffix)) {
+                if !prefix.contains('.') && !prefix.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Read the TLS ClientHello from a TCP stream and extract the SNI server name.
@@ -235,5 +301,278 @@ impl AsyncWrite for PrefixedStream {
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_matches_san_exact() {
+        let san = vec!["foo.localhost".to_string()];
+        assert!(matches_san("foo.localhost", &san));
+        assert!(!matches_san("bar.localhost", &san));
+    }
+
+    #[test]
+    fn test_matches_san_wildcard_single_level() {
+        let san = vec!["*.localhost".to_string()];
+        assert!(matches_san("foo.localhost", &san));
+        assert!(matches_san("bar.localhost", &san));
+        assert!(!matches_san("a.b.localhost", &san));
+        assert!(!matches_san("localhost", &san));
+    }
+
+    #[test]
+    fn test_matches_san_wildcard_multi_level() {
+        let san = vec!["*.localhost".to_string(), "*.echub.localhost".to_string()];
+        assert!(matches_san("foo.localhost", &san));
+        assert!(matches_san("frontend.echub.localhost", &san));
+        assert!(!matches_san("deep.frontend.echub.localhost", &san));
+    }
+
+    #[test]
+    fn test_matches_san_case_insensitive() {
+        let san = vec!["*.LOCALHOST".to_string()];
+        assert!(matches_san("Foo.localhost", &san));
+        assert!(matches_san("foo.Localhost", &san));
+    }
+
+    #[test]
+    fn test_matches_san_empty() {
+        let san: Vec<String> = vec![];
+        assert!(!matches_san("foo.localhost", &san));
+    }
+
+    // ---- Scenario tests: SAN coverage for real routing keys ----
+
+    /// Cert with only *.localhost — single-level keys work, multi-level don't.
+    /// This is the most common initial setup.
+    #[test]
+    fn test_scenario_default_cert_coverage() {
+        let san = vec!["*.localhost".to_string()];
+
+        // These keys produce SNI like "myapp.localhost" → covered
+        assert!(matches_san("myapp.localhost", &san));
+        assert!(matches_san("dashboard.localhost", &san));
+
+        // Multi-level keys produce SNI like "image.echub.localhost" → NOT covered
+        assert!(!matches_san("image.echub.localhost", &san));
+        assert!(!matches_san("api.myapp.localhost", &san));
+        assert!(!matches_san("deep.api.myapp.localhost", &san));
+
+        // Base domain itself → NOT covered by wildcard
+        assert!(!matches_san("localhost", &san));
+    }
+
+    /// Cert regenerated with domains file containing *.localhost and *.echub.localhost.
+    /// Simulates after user runs `xargs mkcert < /etc/nameroute/domains`.
+    #[test]
+    fn test_scenario_regenerated_cert_coverage() {
+        let san = vec![
+            "*.localhost".to_string(),
+            "*.echub.localhost".to_string(),
+        ];
+
+        // Single-level keys — covered by *.localhost
+        assert!(matches_san("myapp.localhost", &san));
+
+        // echub sub-keys — covered by *.echub.localhost
+        assert!(matches_san("image.echub.localhost", &san));
+        assert!(matches_san("api.echub.localhost", &san));
+
+        // Three-level key under echub — still NOT covered
+        assert!(!matches_san("v2.image.echub.localhost", &san));
+    }
+
+    /// Verify that the wildcard pattern from domains::wildcard_for_key
+    /// actually covers the SNI that would be generated for that routing key.
+    #[test]
+    fn test_scenario_wildcard_for_key_covers_sni() {
+        let base = "localhost";
+        let cases = vec![
+            // (routing_key, expected_sni)
+            ("myapp", "myapp.localhost"),
+            ("dashboard", "dashboard.localhost"),
+            ("image.echub", "image.echub.localhost"),
+            ("api.myapp", "api.myapp.localhost"),
+            ("api.frontend.echub", "api.frontend.echub.localhost"),
+        ];
+
+        for (key, sni) in &cases {
+            let pattern = crate::domains::wildcard_for_key(key, base);
+            let san = vec![pattern.clone()];
+            assert!(
+                matches_san(sni, &san),
+                "wildcard_for_key({:?}) = {:?} should cover SNI {:?}",
+                key,
+                pattern,
+                sni
+            );
+        }
+    }
+
+    /// Full scenario: register multiple routes, collect all patterns
+    /// from wildcard_for_key, and verify every route's SNI is covered.
+    #[test]
+    fn test_scenario_all_routes_covered_by_domains_file() {
+        let base = "localhost";
+        let keys = vec![
+            "myapp",
+            "dashboard",
+            "image.echub",
+            "frontend.echub",
+            "api.frontend.echub",
+        ];
+
+        // Collect unique patterns (simulating domains file)
+        let mut patterns: Vec<String> = Vec::new();
+        let base_pattern = format!("*.{}", base);
+        if !patterns.contains(&base_pattern) {
+            patterns.push(base_pattern.clone());
+        }
+        for key in &keys {
+            let pattern = crate::domains::wildcard_for_key(key, base);
+            if !patterns.contains(&pattern) {
+                patterns.push(pattern);
+            }
+        }
+
+        // Verify every key's SNI is covered
+        for key in &keys {
+            let sni = format!("{}.{}", key, base);
+            assert!(
+                matches_san(&sni, &patterns),
+                "SNI {:?} is NOT covered by patterns {:?}",
+                sni,
+                patterns
+            );
+        }
+    }
+
+    /// Cert with *.localhost should NOT cover multi-level subdomains.
+    /// This was the original user-facing problem that motivated this feature.
+    #[test]
+    fn test_scenario_mismatch_detected_for_uncovered_sni() {
+        let san = vec!["*.localhost".to_string()];
+
+        // These multi-level SNIs should NOT match — mismatch page should appear
+        let uncovered = vec![
+            "image.echub.localhost",
+            "api.myapp.localhost",
+            "frontend.echub.localhost",
+        ];
+        for sni in &uncovered {
+            assert!(
+                !matches_san(sni, &san),
+                "SNI {:?} should NOT be covered by {:?}",
+                sni,
+                san
+            );
+        }
+    }
+
+    // ---- Edge case tests: ClientHello parsing ----
+
+    /// Invalid TLS record type (not handshake).
+    #[test]
+    fn test_parse_sni_not_client_hello() {
+        // handshake type = 2 (ServerHello, not ClientHello)
+        let data = vec![2, 0, 0, 0];
+        let result = parse_sni_from_client_hello(&data);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("Not a ClientHello"),
+        );
+    }
+
+    /// Truncated handshake data.
+    #[test]
+    fn test_parse_sni_truncated() {
+        let data = vec![1, 0]; // ClientHello type but too short
+        let result = parse_sni_from_client_hello(&data);
+        assert!(result.is_err());
+    }
+
+    /// Empty data.
+    #[test]
+    fn test_parse_sni_empty() {
+        let data: Vec<u8> = vec![];
+        let result = parse_sni_from_client_hello(&data);
+        assert!(result.is_err());
+    }
+
+    // ---- Edge case tests: SAN matching boundary conditions ----
+
+    /// Wildcard should not match the base domain itself.
+    #[test]
+    fn test_matches_san_wildcard_does_not_match_base() {
+        let san = vec!["*.localhost".to_string()];
+        assert!(!matches_san("localhost", &san));
+    }
+
+    /// Wildcard should not match empty prefix.
+    #[test]
+    fn test_matches_san_wildcard_empty_prefix() {
+        let san = vec!["*.localhost".to_string()];
+        assert!(!matches_san(".localhost", &san));
+    }
+
+    /// Exact match (non-wildcard) SAN entry.
+    #[test]
+    fn test_matches_san_exact_non_wildcard() {
+        let san = vec!["myapp.localhost".to_string()];
+        assert!(matches_san("myapp.localhost", &san));
+        assert!(!matches_san("other.localhost", &san));
+    }
+
+    /// Mixed exact and wildcard entries.
+    #[test]
+    fn test_matches_san_mixed_exact_and_wildcard() {
+        let san = vec![
+            "specific.example.com".to_string(),
+            "*.localhost".to_string(),
+        ];
+        assert!(matches_san("specific.example.com", &san));
+        assert!(matches_san("foo.localhost", &san));
+        assert!(!matches_san("other.example.com", &san));
+    }
+
+    // ---- End-to-end scenario: extract_subdomain → SNI → SAN check ----
+
+    /// Verify the full chain: routing key → SNI hostname → SAN match/mismatch.
+    /// This tests the interaction between http::extract_subdomain and tls::matches_san.
+    #[test]
+    fn test_scenario_subdomain_to_sni_to_san_chain() {
+        use crate::protocol::http::extract_subdomain;
+
+        let base = "localhost";
+        let san_default = vec!["*.localhost".to_string()];
+        let san_extended = vec![
+            "*.localhost".to_string(),
+            "*.echub.localhost".to_string(),
+        ];
+
+        // Case 1: Simple key — covered by default cert
+        let sni = "myapp.localhost";
+        let key = extract_subdomain(sni, base);
+        assert_eq!(key, Some("myapp".to_string()));
+        assert!(matches_san(sni, &san_default));
+
+        // Case 2: Multi-level key — NOT covered by default cert
+        let sni = "image.echub.localhost";
+        let key = extract_subdomain(sni, base);
+        assert_eq!(key, Some("image.echub".to_string()));
+        assert!(!matches_san(sni, &san_default));
+
+        // Case 3: Same multi-level key — covered after cert regeneration
+        assert!(matches_san(sni, &san_extended));
+
+        // Case 4: Even deeper key — not covered even by extended cert
+        let sni = "v2.image.echub.localhost";
+        let key = extract_subdomain(sni, base);
+        assert_eq!(key, Some("v2.image.echub".to_string()));
+        assert!(!matches_san(sni, &san_extended));
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -8,6 +9,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+use crate::domains;
 use crate::hosts;
 use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, HealthStatus, SharedHealthMap, SharedRoutingTable};
@@ -42,6 +44,8 @@ pub struct Response {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routes: Option<Vec<RouteEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,6 +58,8 @@ pub struct RouteEntry {
     pub tls_mode: Option<TlsMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl Response {
@@ -62,6 +68,7 @@ impl Response {
             ok: true,
             error: None,
             routes: None,
+            url: None,
         }
     }
 
@@ -70,6 +77,7 @@ impl Response {
             ok: false,
             error: Some(msg.into()),
             routes: None,
+            url: None,
         }
     }
 }
@@ -80,6 +88,9 @@ pub async fn run_control_server(
     table: SharedRoutingTable,
     health_map: SharedHealthMap,
     base_domain: String,
+    tls_cert: String,
+    tls_key: String,
+    listener_ports: HashMap<ProtocolKind, u16>,
     cancel: CancellationToken,
 ) {
     let path = socket_path();
@@ -113,8 +124,11 @@ pub async fn run_control_server(
                         let table = table.clone();
                         let health_map = health_map.clone();
                         let base_domain = base_domain.clone();
+                        let tls_cert = tls_cert.clone();
+                        let tls_key = tls_key.clone();
+                        let listener_ports = listener_ports.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, table, health_map, &base_domain).await {
+                            if let Err(e) = handle_connection(stream, table, health_map, &base_domain, &tls_cert, &tls_key, &listener_ports).await {
                                 warn!(error = %e, "Control connection error");
                             }
                         });
@@ -137,13 +151,16 @@ async fn handle_connection(
     table: SharedRoutingTable,
     health_map: SharedHealthMap,
     base_domain: &str,
+    tls_cert: &str,
+    tls_key: &str,
+    listener_ports: &HashMap<ProtocolKind, u16>,
 ) -> std::io::Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
 
     while let Some(line) = lines.next_line().await? {
         let response = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => handle_request(req, &table, &health_map, base_domain).await,
+            Ok(req) => handle_request(req, &table, &health_map, base_domain, tls_cert, tls_key, listener_ports).await,
             Err(e) => Response::error(format!("invalid request: {}", e)),
         };
 
@@ -160,6 +177,9 @@ async fn handle_request(
     table: &SharedRoutingTable,
     health_map: &SharedHealthMap,
     base_domain: &str,
+    tls_cert: &str,
+    tls_key: &str,
+    listener_ports: &HashMap<ProtocolKind, u16>,
 ) -> Response {
     match req {
         Request::AddRoute {
@@ -192,8 +212,14 @@ async fn handle_request(
                 hosts::sync(&t, base_domain);
             }
 
+            // Ensure wildcard domain pattern for HTTPS terminate mode
+            if protocol == ProtocolKind::Https {
+                domains::ensure_domain_for_key(&key, base_domain, tls_cert, tls_key);
+            }
+
+            let url = build_url(protocol, &key, base_domain, listener_ports);
             info!(protocol = %protocol, key = %key, backend = %backend, "Route added via control socket");
-            Response::ok()
+            Response { ok: true, error: None, routes: None, url }
         }
         Request::RemoveRoute { protocol, key } => {
             let removed = {
@@ -232,6 +258,7 @@ async fn handle_request(
                         HealthStatus::Healthy => "healthy".to_string(),
                         HealthStatus::Unhealthy => "unhealthy".to_string(),
                     });
+                    let url = build_url(*protocol, key, base_domain, listener_ports);
                     RouteEntry {
                         protocol: *protocol,
                         key: key.clone(),
@@ -239,6 +266,7 @@ async fn handle_request(
                         source: backend.source.clone(),
                         tls_mode,
                         health,
+                        url,
                     }
                 })
                 .collect();
@@ -247,8 +275,26 @@ async fn handle_request(
                 ok: true,
                 error: None,
                 routes: Some(routes),
+                url: None,
             }
         }
+    }
+}
+
+fn build_url(
+    protocol: ProtocolKind,
+    key: &str,
+    base_domain: &str,
+    listener_ports: &HashMap<ProtocolKind, u16>,
+) -> Option<String> {
+    match protocol {
+        ProtocolKind::Http => listener_ports
+            .get(&ProtocolKind::Http)
+            .map(|port| format!("http://{}.{}:{}", key, base_domain, port)),
+        ProtocolKind::Https => listener_ports
+            .get(&ProtocolKind::Https)
+            .map(|port| format!("https://{}.{}:{}", key, base_domain, port)),
+        _ => None,
     }
 }
 

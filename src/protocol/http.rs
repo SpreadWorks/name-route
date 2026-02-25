@@ -183,6 +183,23 @@ pub(crate) fn extract_subdomain(host: &str, base_domain: &str) -> Option<String>
     }
 }
 
+pub(crate) async fn send_html_response<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    status: u16,
+    reason: &str,
+    body: &str,
+) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n{}",
+        status,
+        reason,
+        body.len(),
+        body
+    );
+    stream.write_all(response.as_bytes()).await?;
+    Ok(())
+}
+
 async fn send_response<S: AsyncWrite + Unpin>(
     stream: &mut S,
     status: u16,
@@ -233,5 +250,55 @@ mod tests {
             Some("app".to_string())
         );
         assert_eq!(extract_subdomain("mysite.local", "mysite.local"), None);
+    }
+
+    // ---- Scenario tests: real-world HTTP routing ----
+
+    /// Host header with port (e.g. "myapp.localhost:8080") should extract subdomain correctly.
+    #[test]
+    fn test_extract_subdomain_host_with_port_stripped() {
+        // In handle_http_stream, host_no_port = host.split(':').next()
+        // So the port is stripped before calling extract_subdomain.
+        let host = "myapp.localhost:8080";
+        let host_no_port = host.split(':').next().unwrap_or(host);
+        assert_eq!(
+            extract_subdomain(host_no_port, "localhost"),
+            Some("myapp".to_string())
+        );
+    }
+
+    /// Multi-level subdomain routing: "api.image.echub.localhost" → key "api.image.echub"
+    #[test]
+    fn test_extract_subdomain_deep_multilevel() {
+        assert_eq!(
+            extract_subdomain("api.image.echub.localhost", "localhost"),
+            Some("api.image.echub".to_string())
+        );
+        assert_eq!(
+            extract_subdomain("v2.api.image.echub.localhost", "localhost"),
+            Some("v2.api.image.echub".to_string())
+        );
+    }
+
+    /// Empty subdomain edge case: ".localhost" should not produce a key.
+    #[test]
+    fn test_extract_subdomain_empty_prefix() {
+        // ".localhost" does not end with ".localhost" suffix (it IS ".localhost"),
+        // and it doesn't equal "localhost" either, so it returns None.
+        assert_eq!(extract_subdomain(".localhost", "localhost"), None);
+    }
+
+    /// Unrelated domain should return None.
+    #[test]
+    fn test_extract_subdomain_unrelated_domain() {
+        assert_eq!(extract_subdomain("evil.example.com", "localhost"), None);
+        assert_eq!(extract_subdomain("notlocalhost", "localhost"), None);
+        assert_eq!(extract_subdomain("foolocalhost", "localhost"), None);
+    }
+
+    /// Suffix attack: "evil.notlocalhost" should not match base "localhost".
+    #[test]
+    fn test_extract_subdomain_suffix_attack() {
+        assert_eq!(extract_subdomain("evil.notlocalhost", "localhost"), None);
     }
 }

@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
+use crate::domains;
 use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, RoutingTable, SharedRoutingTable};
 
@@ -204,6 +205,7 @@ pub async fn polling_loop(
             _ = interval.tick() => {
                 match poll_once(&docker).await {
                     Ok(docker_table) => {
+                        let config = config_rx.borrow().clone();
                         let mut table = routing_table.write().await;
                         // Remove old Docker routes
                         table.remove_by_source("docker");
@@ -215,10 +217,20 @@ pub async fn polling_loop(
                                 }
                             }
                             table.insert(*protocol, key.clone(), backend.clone());
+
+                            // Ensure wildcard domain pattern for HTTPS routes
+                            if *protocol == ProtocolKind::Https {
+                                domains::ensure_domain_for_key(
+                                    key,
+                                    &config.http.base_domain,
+                                    config.tls.cert.as_deref().unwrap_or_default(),
+                                    config.tls.key.as_deref().unwrap_or_default(),
+                                );
+                            }
                         }
                         let count = table.len();
                         // Update /etc/hosts with current HTTP routes
-                        let base_domain = config_rx.borrow().http.base_domain.clone();
+                        let base_domain = config.http.base_domain.clone();
                         crate::hosts::sync(&table, &base_domain);
                         drop(table);
                         debug!(routes = count, "Routing table updated");

@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
+use crate::domains;
 use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, RoutingTable, SharedRoutingTable};
 
@@ -214,6 +215,16 @@ pub async fn polling_loop(
                         }
                     }
                     table.insert(*protocol, key.clone(), backend.clone());
+
+                    // Ensure wildcard domain pattern for HTTPS routes
+                    if *protocol == ProtocolKind::Https {
+                        domains::ensure_domain_for_key(
+                            key,
+                            &config.http.base_domain,
+                            config.tls.cert.as_deref().unwrap_or_default(),
+                            config.tls.key.as_deref().unwrap_or_default(),
+                        );
+                    }
                 }
                 let count = table.len();
                 let base_domain = config.http.base_domain.clone();

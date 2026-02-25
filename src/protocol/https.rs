@@ -6,9 +6,9 @@ use tokio::sync::watch;
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, TlsConfig};
 use crate::error::Result;
-use crate::protocol::http::{self, extract_subdomain};
+use crate::protocol::http::{self, extract_subdomain, send_html_response};
 use crate::protocol::{ProtocolHandler, ProtocolKind, TlsMode};
 use crate::proxy;
 use crate::router::SharedRoutingTable;
@@ -18,6 +18,8 @@ pub struct HttpsHandler {
     routing_table: SharedRoutingTable,
     config_rx: watch::Receiver<Config>,
     tls_acceptor: Option<TlsAcceptor>,
+    san_names: Vec<String>,
+    tls_config: TlsConfig,
 }
 
 impl HttpsHandler {
@@ -25,11 +27,15 @@ impl HttpsHandler {
         routing_table: SharedRoutingTable,
         config_rx: watch::Receiver<Config>,
         tls_acceptor: Option<TlsAcceptor>,
+        san_names: Vec<String>,
+        tls_config: TlsConfig,
     ) -> Self {
         Self {
             routing_table,
             config_rx,
             tls_acceptor,
+            san_names,
+            tls_config,
         }
     }
 }
@@ -108,10 +114,85 @@ impl ProtocolHandler for HttpsHandler {
 
                 // Wrap the stream with prefix buffer so TLS acceptor can re-read the ClientHello
                 let prefixed = tls::PrefixedStream::new(buffer, client);
-                let tls_stream = tls_acceptor.accept(prefixed).await.map_err(|e| {
+                let mut tls_stream = tls_acceptor.accept(prefixed).await.map_err(|e| {
                     debug!(peer = %peer, error = %e, "TLS handshake failed");
                     e
                 })?;
+
+                // Check SAN coverage after TLS handshake
+                if !self.san_names.is_empty()
+                    && !tls::matches_san(&server_name, &self.san_names)
+                {
+                    warn!(
+                        peer = %peer,
+                        sni = %server_name,
+                        "Certificate does not cover SNI (SAN mismatch)"
+                    );
+
+                    let cert_path = self
+                        .tls_config
+                        .cert
+                        .as_deref()
+                        .unwrap_or("/etc/nameroute/cert.pem");
+                    let key_path = self
+                        .tls_config
+                        .key
+                        .as_deref()
+                        .unwrap_or("/etc/nameroute/key.pem");
+
+                    let san_list_html: String = self
+                        .san_names
+                        .iter()
+                        .map(|s| format!("  <li><code>{}</code></li>\n", s))
+                        .collect();
+
+                    let body = format!(
+                        r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Certificate Error</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #333; }}
+  h1 {{ color: #222; font-size: 1.6em; border-bottom: 2px solid #ccc; padding-bottom: 8px; }}
+  h2.warn {{ color: #c00; }}
+  pre {{ background: #f4f4f4; padding: 16px; border-radius: 6px; overflow-x: auto; }}
+  code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }}
+  ul {{ line-height: 1.8; }}
+</style>
+</head>
+<body>
+<h1>name-route</h1>
+<h2 class="warn">&#x26A0; Certificate does not cover &ldquo;{sni}&rdquo;</h2>
+<p>The TLS certificate loaded by name-route does not include a SAN entry
+that matches <code>{sni}</code>.</p>
+<h2>Current certificate covers:</h2>
+<ul>
+{san_list_html}</ul>
+<h2>To fix, regenerate the certificate:</h2>
+<pre>sudo xargs mkcert \
+  -key-file {key_path} \
+  -cert-file {cert_path} \
+  &lt; /etc/nameroute/domains
+
+sudo systemctl restart nameroute</pre>
+</body>
+</html>"#,
+                        sni = server_name,
+                        san_list_html = san_list_html,
+                        key_path = key_path,
+                        cert_path = cert_path,
+                    );
+
+                    let _ = send_html_response(
+                        &mut tls_stream,
+                        421,
+                        "Misdirected Request",
+                        &body,
+                    )
+                    .await;
+                    return Ok(());
+                }
 
                 // Delegate to HTTP handler with ProtocolKind::Https for routing lookup
                 http::handle_http_stream(

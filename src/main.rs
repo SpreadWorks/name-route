@@ -2,6 +2,7 @@ mod config;
 mod control;
 mod discovery;
 mod docker;
+mod domains;
 mod error;
 mod health;
 mod hosts;
@@ -13,6 +14,7 @@ mod run;
 mod signal;
 mod tls;
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -98,6 +100,11 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Install the ring CryptoProvider for rustls (required by rustls 0.23+)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls CryptoProvider");
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -116,11 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "PROTOCOL", "KEY", "BACKEND", "SOURCE", "HEALTH", "URL"
                     );
                     for r in &routes {
-                        let url = match r.protocol {
-                            ProtocolKind::Http => format!("http://{}.localhost:8080", r.key),
-                            ProtocolKind::Https => format!("https://{}.localhost:8443", r.key),
-                            _ => String::new(),
-                        };
+                        let url = r.url.as_deref().unwrap_or("");
                         let health = r.health.as_deref().unwrap_or("-");
                         println!(
                             "{:<12} {:<20} {:<25} {:<8} {:<10} {}",
@@ -306,6 +309,17 @@ async fn run_server(
                     "Static route collision, overwriting previous entry"
                 );
             }
+
+            // Ensure wildcard domain pattern for HTTPS routes
+            if route.protocol == ProtocolKind::Https {
+                domains::ensure_domain_for_key(
+                    &route.key,
+                    &config.http.base_domain,
+                    config.tls.cert.as_deref().unwrap_or_default(),
+                    config.tls.key.as_deref().unwrap_or_default(),
+                );
+            }
+
             info!(
                 protocol = %route.protocol,
                 key = %route.key,
@@ -327,6 +341,15 @@ async fn run_server(
                     continue;
                 }
                 table.insert(*protocol, key.clone(), backend.clone());
+
+                if *protocol == ProtocolKind::Https {
+                    domains::ensure_domain_for_key(
+                        key,
+                        &config.http.base_domain,
+                        config.tls.cert.as_deref().unwrap_or_default(),
+                        config.tls.key.as_deref().unwrap_or_default(),
+                    );
+                }
             }
             info!(
                 routes = table.len(),
@@ -363,6 +386,15 @@ async fn run_server(
                                 }
                             }
                             table.insert(*protocol, key.clone(), backend.clone());
+
+                            if *protocol == ProtocolKind::Https {
+                                domains::ensure_domain_for_key(
+                                    key,
+                                    &config.http.base_domain,
+                                    config.tls.cert.as_deref().unwrap_or_default(),
+                                    config.tls.key.as_deref().unwrap_or_default(),
+                                );
+                            }
                         }
                         info!(
                             routes = table.len(),
@@ -423,9 +455,19 @@ async fn run_server(
         let ctrl_table = routing_table.clone();
         let ctrl_health_map = health_map.clone();
         let ctrl_base_domain = config.http.base_domain.clone();
+        let ctrl_tls_cert = config.tls.cert.clone().unwrap_or_default();
+        let ctrl_tls_key = config.tls.key.clone().unwrap_or_default();
+        let mut listener_ports: HashMap<ProtocolKind, u16> = HashMap::new();
+        for lc in config.listeners.values() {
+            if lc.enabled {
+                if let Some(port) = lc.bind.rsplit_once(':').and_then(|(_, p)| p.parse().ok()) {
+                    listener_ports.insert(lc.protocol, port);
+                }
+            }
+        }
         let ctrl_cancel = cancel.clone();
         tokio::spawn(async move {
-            control::run_control_server(ctrl_table, ctrl_health_map, ctrl_base_domain, ctrl_cancel).await;
+            control::run_control_server(ctrl_table, ctrl_health_map, ctrl_base_domain, ctrl_tls_cert, ctrl_tls_key, listener_ports, ctrl_cancel).await;
         });
     }
 
@@ -497,10 +539,18 @@ async fn run_server(
                     None
                 };
 
+                let san_names = if config.tls.cert.is_some() && config.tls.key.is_some() {
+                    tls::extract_san_dns_names_from_pem(&config.tls)
+                } else {
+                    vec![]
+                };
+
                 let handler = Arc::new(protocol::https::HttpsHandler::new(
                     routing_table.clone(),
                     config_rx.clone(),
                     tls_acceptor,
+                    san_names,
+                    config.tls.clone(),
                 ));
                 let lc = listener_config.clone();
                 let cancel = cancel.clone();

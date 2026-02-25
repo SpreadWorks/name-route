@@ -186,4 +186,118 @@ mod tests {
         let my = table.lookup(ProtocolKind::Mysql, "app").unwrap();
         assert_eq!(my.port, 3306);
     }
+
+    // ---- Scenario tests: HTTPS route management ----
+
+    /// HTTPS terminate route should preserve tls_mode.
+    #[test]
+    fn test_https_terminate_tls_mode() {
+        let mut table = RoutingTable::new();
+        table.insert(
+            ProtocolKind::Https,
+            "myapp".to_string(),
+            Backend {
+                source: "run".to_string(),
+                container_name: "myapp".to_string(),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
+                port: 3000,
+                tls_mode: TlsMode::Terminate,
+            },
+        );
+
+        let b = table.lookup(ProtocolKind::Https, "myapp").unwrap();
+        assert_eq!(b.tls_mode, TlsMode::Terminate);
+        assert_eq!(b.port, 3000);
+    }
+
+    /// Route removal should succeed and subsequent lookup should return None.
+    #[test]
+    fn test_remove_route() {
+        let mut table = RoutingTable::new();
+        table.insert(
+            ProtocolKind::Https,
+            "myapp".to_string(),
+            make_backend("app"),
+        );
+        assert!(table.lookup(ProtocolKind::Https, "myapp").is_some());
+
+        let removed = table.remove(ProtocolKind::Https, "myapp");
+        assert!(removed);
+        assert!(table.lookup(ProtocolKind::Https, "myapp").is_none());
+
+        // Removing again should return false
+        assert!(!table.remove(ProtocolKind::Https, "myapp"));
+    }
+
+    /// remove_by_source should only remove routes with matching source.
+    /// Simulates Docker polling removing old docker routes while keeping static/run routes.
+    #[test]
+    fn test_remove_by_source_preserves_others() {
+        let mut table = RoutingTable::new();
+        table.insert(
+            ProtocolKind::Http,
+            "static-app".to_string(),
+            Backend {
+                source: "static".to_string(),
+                container_name: "static-app".to_string(),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
+                port: 3000,
+                tls_mode: TlsMode::Passthrough,
+            },
+        );
+        table.insert(
+            ProtocolKind::Http,
+            "docker-app".to_string(),
+            Backend {
+                source: "docker".to_string(),
+                container_name: "docker-app".to_string(),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 2))],
+                port: 80,
+                tls_mode: TlsMode::Passthrough,
+            },
+        );
+        table.insert(
+            ProtocolKind::Https,
+            "run-app".to_string(),
+            Backend {
+                source: "run".to_string(),
+                container_name: "run-app".to_string(),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
+                port: 4000,
+                tls_mode: TlsMode::Terminate,
+            },
+        );
+
+        assert_eq!(table.len(), 3);
+        table.remove_by_source("docker");
+        assert_eq!(table.len(), 2);
+        assert!(table.lookup(ProtocolKind::Http, "static-app").is_some());
+        assert!(table.lookup(ProtocolKind::Http, "docker-app").is_none());
+        assert!(table.lookup(ProtocolKind::Https, "run-app").is_some());
+    }
+
+    /// Multi-level key routing: "image.echub" should be stored and found correctly.
+    #[test]
+    fn test_multilevel_key_routing() {
+        let mut table = RoutingTable::new();
+        table.insert(
+            ProtocolKind::Https,
+            "image.echub".to_string(),
+            Backend {
+                source: "run".to_string(),
+                container_name: "image.echub".to_string(),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
+                port: 5000,
+                tls_mode: TlsMode::Terminate,
+            },
+        );
+
+        // Exact key lookup
+        assert!(table.lookup(ProtocolKind::Https, "image.echub").is_some());
+        // Case insensitive
+        assert!(table.lookup(ProtocolKind::Https, "IMAGE.ECHUB").is_some());
+        // Partial key should not match
+        assert!(table.lookup(ProtocolKind::Https, "image").is_none());
+        assert!(table.lookup(ProtocolKind::Https, "echub").is_none());
+    }
 }

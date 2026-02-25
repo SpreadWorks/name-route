@@ -80,6 +80,9 @@ async fn run_port_mode(
         "nameroute: registered {}:{} -> {} (PORT={})",
         protocol, key, backend, port
     );
+    if let Some(url) = &resp.url {
+        eprintln!("nameroute: {}", url);
+    }
 
     // Substitute $PORT in command arguments
     let args: Vec<String> = command[1..]
@@ -227,7 +230,11 @@ async fn register_route(
     })
     .await?;
 
-    if !resp.ok {
+    if resp.ok {
+        if let Some(url) = &resp.url {
+            eprintln!("nameroute: {}", url);
+        }
+    } else {
         eprintln!(
             "nameroute: warning: failed to add route: {}",
             resp.error.unwrap_or_default()
