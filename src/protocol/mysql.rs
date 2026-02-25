@@ -364,6 +364,10 @@ fn build_err_packet(error_code: u16, sql_state: &str, message: &str) -> Vec<u8> 
     buf
 }
 
+/// Maximum packet size allowed during handshake phase (1 MB).
+/// This prevents memory exhaustion from malicious oversized packets.
+const MAX_HANDSHAKE_PACKET_SIZE: u32 = 1_048_576;
+
 /// Read a MySQL packet: 3-byte length + 1-byte sequence + payload.
 async fn read_mysql_packet(stream: &mut TcpStream) -> Result<(u8, Vec<u8>)> {
     let mut header = [0u8; 4];
@@ -371,6 +375,13 @@ async fn read_mysql_packet(stream: &mut TcpStream) -> Result<(u8, Vec<u8>)> {
 
     let length = (header[0] as u32) | ((header[1] as u32) << 8) | ((header[2] as u32) << 16);
     let seq = header[3];
+
+    if length > MAX_HANDSHAKE_PACKET_SIZE {
+        return Err(Error::Protocol(format!(
+            "MySQL packet too large: {} bytes (max {})",
+            length, MAX_HANDSHAKE_PACKET_SIZE
+        )));
+    }
 
     let mut payload = vec![0u8; length as usize];
     stream.read_exact(&mut payload).await?;
