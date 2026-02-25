@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use rand::Rng;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
@@ -40,13 +41,27 @@ impl ProtocolHandler for MysqlHandler {
     async fn handle_connection(&self, mut client: TcpStream, peer: SocketAddr) -> Result<()> {
         debug!(peer = %peer, "New MySQL connection");
 
+        let config = self.config_rx.borrow().clone();
+        let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
+
         // Step 1: Send synthetic HandshakeV10 to client
         let challenge = generate_challenge();
         let handshake = build_handshake_v10(&challenge);
         write_mysql_packet(&mut client, 0, &handshake).await?;
 
-        // Step 2: Read HandshakeResponse41 from client
-        let (seq, response_data) = read_mysql_packet(&mut client).await?;
+        // Step 2: Read HandshakeResponse41 from client (with timeout)
+        let (seq, response_data) = match tokio::time::timeout(
+            handshake_timeout,
+            read_mysql_packet(&mut client),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => {
+                warn!(peer = %peer, "MySQL handshake timed out");
+                return Ok(());
+            }
+        };
         if response_data.len() < 32 {
             warn!(peer = %peer, len = response_data.len(), "HandshakeResponse41 too short");
             return Err(Error::Protocol("HandshakeResponse41 too short".into()));
@@ -130,11 +145,15 @@ impl ProtocolHandler for MysqlHandler {
         let (_resp_seq, resp_data) = read_mysql_packet(&mut backend_stream).await?;
 
         if !resp_data.is_empty() && resp_data[0] == 0xFF {
-            // ERR packet from backend
+            // ERR packet from backend — name-route uses trust authentication
+            // (empty credentials) so the backend must allow passwordless access
+            // (e.g. --skip-grant-tables or unix socket auth).
             error!(
                 peer = %peer,
                 database = %db_name,
-                "Backend authentication failed (password may be required)"
+                "Backend authentication failed. name-route uses trust-auth \
+                 (empty credentials); backend must be configured for passwordless \
+                 access (e.g. --skip-grant-tables)"
             );
         }
 
@@ -326,7 +345,8 @@ fn parse_backend_challenge(data: &[u8]) -> Vec<u8> {
 }
 
 /// Build a HandshakeResponse41 to send to the backend.
-/// Uses empty auth_data since we expect trust authentication.
+/// Uses empty auth_data since we expect trust authentication
+/// (e.g. MySQL started with --skip-grant-tables or socket-based auth).
 fn build_handshake_response(username: &str, database: &str, _backend_challenge: &[u8]) -> Vec<u8> {
     let mut buf = Vec::with_capacity(128);
 

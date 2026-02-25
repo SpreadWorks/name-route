@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -30,41 +31,56 @@ impl ProtocolHandler for PostgresHandler {
     async fn handle_connection(&self, mut client: TcpStream, peer: SocketAddr) -> Result<()> {
         debug!(peer = %peer, "New PostgreSQL connection");
 
-        let (msg_len, buf) = loop {
-            // Read message length (4 bytes, big-endian)
-            let msg_len = client.read_u32().await? as usize;
-            if msg_len < 8 || msg_len > 10240 {
-                warn!(peer = %peer, len = msg_len, "Invalid startup message length");
-                return Err(Error::Protocol("Invalid startup message length".into()));
+        let config = self.config_rx.borrow().clone();
+        let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
+
+        let startup_read = async {
+            loop {
+                // Read message length (4 bytes, big-endian)
+                let msg_len = client.read_u32().await? as usize;
+                if msg_len < 8 || msg_len > 10240 {
+                    warn!(peer = %peer, len = msg_len, "Invalid startup message length");
+                    return Err::<_, Error>(Error::Protocol("Invalid startup message length".into()));
+                }
+
+                // Read the rest of the message
+                let mut buf = vec![0u8; msg_len - 4];
+                client.read_exact(&mut buf).await?;
+
+                // First 4 bytes after length are the version/code
+                let code = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+
+                match code {
+                    // SSLRequest (80877103) — decline and wait for next message
+                    0x04D2_162F => {
+                        debug!(peer = %peer, "SSL request received, declining");
+                        client.write_all(b"N").await?;
+                        continue;
+                    }
+                    // CancelRequest (80877102)
+                    0x04D2_162E => {
+                        debug!(peer = %peer, "Cancel request received, ignoring");
+                        return Ok(None);
+                    }
+                    // Version 3.0 StartupMessage (196608 = 0x00030000)
+                    0x0003_0000 => {
+                        return Ok(Some((msg_len, buf)));
+                    }
+                    _ => {
+                        warn!(peer = %peer, code, "Unknown startup message code");
+                        return Err(Error::Protocol(format!("Unknown startup code: {}", code)));
+                    }
+                }
             }
+        };
 
-            // Read the rest of the message
-            let mut buf = vec![0u8; msg_len - 4];
-            client.read_exact(&mut buf).await?;
-
-            // First 4 bytes after length are the version/code
-            let code = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
-
-            match code {
-                // SSLRequest (80877103) — decline and wait for next message
-                0x04D2_162F => {
-                    debug!(peer = %peer, "SSL request received, declining");
-                    client.write_all(b"N").await?;
-                    continue;
-                }
-                // CancelRequest (80877102)
-                0x04D2_162E => {
-                    debug!(peer = %peer, "Cancel request received, ignoring");
-                    return Ok(());
-                }
-                // Version 3.0 StartupMessage (196608 = 0x00030000)
-                0x0003_0000 => {
-                    break (msg_len, buf);
-                }
-                _ => {
-                    warn!(peer = %peer, code, "Unknown startup message code");
-                    return Err(Error::Protocol(format!("Unknown startup code: {}", code)));
-                }
+        let (msg_len, buf) = match tokio::time::timeout(handshake_timeout, startup_read).await {
+            Ok(Ok(Some((len, buf)))) => (len, buf),
+            Ok(Ok(None)) => return Ok(()),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                warn!(peer = %peer, "PostgreSQL handshake timed out");
+                return Ok(());
             }
         };
 
