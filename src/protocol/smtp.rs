@@ -9,8 +9,13 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::protocol::ProtocolHandler;
+
+/// Maximum SMTP command line length (RFC 5321: 512 bytes including CRLF).
+const MAX_COMMAND_LINE: usize = 1024;
+/// Maximum line length during DATA phase (generous: 100 KB per line).
+const MAX_DATA_LINE: usize = 102_400;
 
 #[derive(Debug, PartialEq)]
 enum SmtpState {
@@ -54,7 +59,7 @@ impl ProtocolHandler for SmtpHandler {
 
         loop {
             line_buf.clear();
-            let bytes_read = reader.read_line(&mut line_buf).await?;
+            let bytes_read = read_limited_line(&mut reader, &mut line_buf, MAX_COMMAND_LINE).await?;
             if bytes_read == 0 {
                 debug!(peer = %peer, "Client disconnected");
                 break;
@@ -206,7 +211,7 @@ async fn receive_data(
 
     loop {
         line_buf.clear();
-        let bytes_read = reader.read_line(&mut line_buf).await?;
+        let bytes_read = read_limited_line(reader, &mut line_buf, MAX_DATA_LINE).await?;
         if bytes_read == 0 {
             // Client disconnected
             break;
@@ -224,7 +229,7 @@ async fn receive_data(
             // Continue reading to consume the rest of the message
             loop {
                 line_buf.clear();
-                let n = reader.read_line(&mut line_buf).await?;
+                let n = read_limited_line(reader, &mut line_buf, MAX_DATA_LINE).await?;
                 if n == 0 {
                     break;
                 }
@@ -264,6 +269,42 @@ async fn receive_data(
 
     writer.write_all(b"250 OK\r\n").await?;
     Ok(true)
+}
+
+/// Read a line from the buffered reader, limited to `max_bytes`.
+/// Returns an error if the line exceeds the limit before a newline is found.
+async fn read_limited_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    buf: &mut String,
+    max_bytes: usize,
+) -> Result<usize> {
+    use tokio::io::AsyncBufReadExt;
+    let mut total = 0;
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(total);
+        }
+        if let Some(newline_pos) = available.iter().position(|&b| b == b'\n') {
+            let to_consume = newline_pos + 1;
+            let chunk = &available[..to_consume];
+            total += chunk.len();
+            if total > max_bytes {
+                return Err(Error::Protocol(format!("line too long (>{} bytes)", max_bytes)));
+            }
+            buf.push_str(&String::from_utf8_lossy(chunk));
+            reader.consume(to_consume);
+            return Ok(total);
+        }
+        // No newline yet — consume everything available
+        let len = available.len();
+        total += len;
+        if total > max_bytes {
+            return Err(Error::Protocol(format!("line too long (>{} bytes)", max_bytes)));
+        }
+        buf.push_str(&String::from_utf8_lossy(available));
+        reader.consume(len);
+    }
 }
 
 /// Extract and sanitize domain from RCPT TO:<user@domain> or similar.
