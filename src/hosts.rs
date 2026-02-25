@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::{debug, error, info};
@@ -13,6 +14,10 @@ const END_MARKER: &str = "# --- END name-route ---";
 /// Set to true when not root or after the first write failure; all subsequent calls become no-ops.
 static DISABLED: AtomicBool = AtomicBool::new(false);
 
+/// Serialize concurrent writes to /etc/hosts from multiple tasks
+/// (Docker polling, discovery polling, control server).
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
 /// Call at startup to disable hosts management when not running as root.
 pub fn disable() {
     DISABLED.store(true, Ordering::Relaxed);
@@ -23,6 +28,8 @@ pub fn sync(table: &RoutingTable, base_domain: &str) {
     if DISABLED.load(Ordering::Relaxed) {
         return;
     }
+
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut hostnames: Vec<String> = table
         .entries()
@@ -54,6 +61,8 @@ pub fn clean() {
     if DISABLED.load(Ordering::Relaxed) {
         return;
     }
+
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     match write_hosts(HOSTS_PATH, &[]) {
         Ok(()) => {
