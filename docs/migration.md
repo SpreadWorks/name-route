@@ -213,3 +213,95 @@ Yes. Routing works fine without `sudo`. Modern browsers (Chrome, Firefox, Edge, 
 ### Can I use it with Supabase?
 
 Yes. Add name-route labels to your Supabase Docker containers and point `API_EXTERNAL_URL` and `SITE_URL` to the name-route URLs. This eliminates manual port management for Supabase.
+
+
+---
+
+## AI agent instructions
+
+This section provides instructions for AI agents performing name-route migration on existing projects.
+
+To use this guide, give the AI agent the following prompt with the raw URL of this file:
+
+```
+Migrate this project to use name-route by following the instructions at:
+https://raw.githubusercontent.com/user/name-route/main/docs/migration.md
+
+The project directory is: /path/to/project
+```
+
+### Prerequisites
+
+- `nameroute` is already installed on the system.
+- The daemon is managed with systemctl (`sudo systemctl start nameroute`). If systemctl is not available, ask the user how they start and stop nameroute before proceeding.
+- Verify the daemon is running with `nameroute status`.
+
+### Default listener ports
+
+| Protocol   | Listen address      | Routing key source       |
+|------------|---------------------|--------------------------|
+| HTTP       | `127.0.0.1:8080`    | Subdomain of Host header |
+| HTTPS      | `127.0.0.1:8443`    | SNI (TLS Server Name)    |
+| PostgreSQL | `127.0.0.1:15432`   | Database name            |
+| MySQL      | `127.0.0.1:13306`   | Database name            |
+| SMTP       | `127.0.0.1:10025`   | Recipient domain         |
+
+### Migration patterns
+
+#### Pattern 1: Host-side dev server (`nameroute run`)
+
+Wrap the start command. `nameroute run` allocates a free port and passes it via the `PORT` environment variable. Most frameworks (Next.js, Vite, Rails, etc.) read `PORT` automatically.
+
+```json
+{ "scripts": { "dev": "nameroute run http myapp -- next dev" } }
+```
+
+Variants:
+- **`$PORT` substitution** (for commands that don't read `PORT`): `nameroute run http myapp -- python3 -m http.server '$PORT'`
+- **`--port-env`** (additional env var): `nameroute run http myapp --port-env DEV_API_PORT -- node server.js`
+- **`--detect-port`** (auto-detect from stdout/stderr): `nameroute run http myapp --detect-port -- some-server`
+
+#### Pattern 2: Docker containers (labels)
+
+Replace `ports:` with a `name-route` label. The label value is a JSON array:
+
+```yaml
+labels:
+  name-route: '[{"protocol":"http","key":"myapp","port":80}]'
+```
+
+| Field      | Required | Default                         |
+|------------|----------|---------------------------------|
+| `protocol` | Yes      |                                 |
+| `key`      | No       | Container name                  |
+| `port`     | No       | HTTP=80, HTTPS=443, PG=5432, MySQL=3306, SMTP=25 |
+
+#### Pattern 3: Host app + Docker DB (mixed)
+
+Combine Pattern 1 for the app and Pattern 2 for the database. See the examples in the main migration steps above.
+
+#### Pattern 4: Multi-level subdomains (monorepo)
+
+Use dotted keys: `frontend.myproject`, `api.myproject` → `http://frontend.myproject.localhost:8080`, `http://api.myproject.localhost:8080`.
+
+#### Pattern 5: HTTPS with TLS termination
+
+Use `--tls-mode terminate`. Requires `[tls]` cert/key in the daemon config. For multi-level subdomains, regenerate certificates from `/etc/nameroute/domains`.
+
+### DATABASE_URL rules
+
+- **Host to DB**: Change port to the nameroute listener port (15432 for PostgreSQL, 13306 for MySQL). The database name becomes the routing key.
+- **Docker internal**: If a container connects via Docker network using the service name as hostname (e.g., `mysql://dbuser:secret@mysql/eccubedb`), do NOT change it.
+- **BaaS (Supabase, Firebase, etc.)**: If the project uses a BaaS with its own CLI (e.g., `npx supabase start`) and connects via SDK (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), do not change the BaaS settings. Only apply `nameroute run` to the HTTP app servers.
+
+### Migration checklist
+
+1. **Confirm the daemon is running** — `nameroute status`
+2. **Identify services** — list all dev servers and databases the project uses
+3. **Choose a routing key** — typically the project name (e.g., `myapp`)
+4. **For host-side dev servers** — wrap the start command with `nameroute run http <key> -- <command>`
+5. **For Docker services** — replace `ports:` with `name-route` labels
+6. **Update DATABASE_URL** — change port to the nameroute listener port (15432, 13306). See DATABASE_URL rules above for exceptions.
+7. **Update any hardcoded URLs** — change `http://localhost:<port>` to `http://<key>.localhost:8080`. Also update CORS settings (`Access-Control-Allow-Origin`, `CORS_ALLOW_ORIGIN`, etc.) and other origin-dependent configuration (`TRUSTED_HOSTS`, CSP headers) to allow the new `*.localhost` origins.
+8. **If HTTPS is needed** — use `--tls-mode terminate` and confirm `[tls]` is configured in the daemon
+9. **Test** — run `nameroute list` to verify routes, then access the service by name
