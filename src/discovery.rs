@@ -203,7 +203,16 @@ pub async fn polling_loop(
                 if !config.discovery.enabled || config.discovery.paths.is_empty() {
                     continue;
                 }
-                let discovery_table = poll_once(&config);
+                let discovery_table = {
+                    let config = config.clone();
+                    match tokio::task::spawn_blocking(move || poll_once(&config)).await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            warn!(error = %e, "Discovery poll task panicked");
+                            continue;
+                        }
+                    }
+                };
                 let mut table = routing_table.write().await;
                 // Remove old discovery routes
                 table.remove_by_source("discovery");
