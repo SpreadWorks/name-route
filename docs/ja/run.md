@@ -77,6 +77,19 @@ https://localhost:<port>
 `--detect-port` モードでは stdout/stderr がパイプ経由になるため、子プロセスがカラー出力を無効化することがあります。nameroute は `FORCE_COLOR=1` 環境変数を自動設定し、カラー出力を維持します。
 
 
+## HTTPS with --tls-mode
+
+`--tls-mode terminate` を指定すると、name-route が TLS を終端する HTTPS ルートを登録できます。バックエンドは HTTP のまま動作します。
+
+```bash
+nameroute run https myapp --tls-mode terminate -- next dev --port '$PORT'
+```
+
+daemon の設定ファイルに `[tls]` セクションが必要です。セットアップは [HTTPS](https.md) を参照してください。
+
+`--tls-mode` を省略すると passthrough モードになり、バックエンド自身が TLS を処理する必要があります。
+
+
 ## Signal handling
 
 Ctrl+C を押すと、nameroute は子プロセスに SIGINT を転送します。これは通常の Ctrl+C と同じ挙動のため、Node.js や Python などの開発サーバーが graceful shutdown を正しく行えます。子プロセスが終了した後、nameroute は daemon からルートを自動削除します。
@@ -133,9 +146,9 @@ nameroute list
 ```
 
 ```
-PROTOCOL     KEY                  BACKEND                  SOURCE   URL
-http         myapp                127.0.0.1:43210          run      http://myapp.localhost:8080
-postgres     myapp                172.17.0.2:5432          docker
+PROTOCOL     KEY                  BACKEND                  SOURCE   HEALTH     URL
+http         myapp                127.0.0.1:43210          run      healthy    http://myapp.localhost:8080
+postgres     myapp                172.17.0.2:5432          docker   healthy
 ```
 
-HTTP ルートには URL 列が表示され、アクセス先がすぐにわかります。
+HEALTH 列でバックエンドの接続状態を確認できます。

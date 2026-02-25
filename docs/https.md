@@ -40,9 +40,46 @@ mkcert -install
 mkcert -key-file key.pem -cert-file cert.pem "*.localhost"
 ```
 
+> **Tip:** If you use multi-level subdomains (e.g. `api.myapp.localhost`), add them to the certificate:
+> ```bash
+> mkcert -key-file key.pem -cert-file cert.pem "*.localhost" "*.myapp.localhost"
+> ```
+
 ### 2. Configure
 
-Add a TLS section and set `tls_mode = "terminate"` on the route:
+Add a TLS section to your config file:
+
+```toml
+[tls]
+cert = "cert.pem"
+key = "key.pem"
+```
+
+### 3. Use with `nameroute run`
+
+Pass `--tls-mode terminate` so name-route handles TLS. The backend runs plain HTTP — no `--experimental-https` or similar flags needed.
+
+```bash
+nameroute run https myapp --tls-mode terminate -- next dev --port '$PORT'
+```
+
+```
+curl ──tls──▶ nameroute:8443 ──http──▶ next:$PORT (HTTP)
+```
+
+#### package.json example
+
+```json
+{
+  "scripts": {
+    "dev": "nameroute run https myapp --tls-mode terminate -- next dev"
+  }
+}
+```
+
+### 4. Use with static routes
+
+Set `tls_mode = "terminate"` on the route:
 
 ```toml
 [tls]
@@ -58,11 +95,18 @@ tls_mode = "terminate"
 
 ```bash
 sudo nameroute --config config.toml
-```
-
-### 3. Access
-
-```bash
-# name-route terminates TLS and forwards HTTP to the backend
 curl https://myapp.localhost:8443
 ```
+
+
+## Passthrough vs Terminate
+
+| | Passthrough (default) | Terminate |
+|---|---|---|
+| TLS handled by | Backend | name-route |
+| Certificates | Backend manages | name-route config (`[tls]`) |
+| Backend protocol | HTTPS | HTTP |
+| Use case | Backend already serves TLS | Add HTTPS without changing backend |
+| `nameroute run` | `nameroute run https myapp -- next dev --experimental-https` | `nameroute run https myapp --tls-mode terminate -- next dev` |
+
+> **Note:** In passthrough mode, the certificate's domain must match the routing key (e.g. `myapp.localhost`). Dev servers like Next.js `--experimental-https` typically generate certificates for `localhost` only, which causes domain mismatch warnings. Use terminate mode to avoid this.
