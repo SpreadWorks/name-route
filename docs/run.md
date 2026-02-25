@@ -108,6 +108,8 @@ When you press Ctrl+C, nameroute forwards SIGINT to the child process. This is i
 
 Multi-level subdomains like `api.myapp` give you URLs like `http://api.myapp.localhost:8080`.
 
+For more examples including monorepo and HTTPS setups, see [Configuration examples](examples.md).
+
 
 ## docker-compose.yml example
 

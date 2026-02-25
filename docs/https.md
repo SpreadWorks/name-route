@@ -89,6 +89,8 @@ curl ──tls──▶ nameroute:8443 ──http──▶ next:$PORT (HTTP)
 }
 ```
 
+For more examples including monorepo setups, see [Configuration examples](examples.md).
+
 ### 4. Use with static routes
 
 Set `tls_mode = "terminate"` on the route:

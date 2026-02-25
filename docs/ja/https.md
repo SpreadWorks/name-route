@@ -89,6 +89,8 @@ curl ──tls──▶ nameroute:8443 ──http──▶ next:$PORT (HTTP)
 }
 ```
 
+モノレポ構成を含むその他の例は [構成例](examples.md) を参照してください。
+
 ### 4. 静的ルートで使う
 
 ルートに `tls_mode = "terminate"` を指定します:
