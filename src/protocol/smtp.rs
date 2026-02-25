@@ -155,7 +155,6 @@ impl ProtocolHandler for SmtpHandler {
                         &mut writer,
                         &domain_dir,
                         max_size,
-                        line, // first line of data body
                         peer,
                     )
                     .await
@@ -190,7 +189,6 @@ async fn receive_data(
     writer: &mut tokio::net::tcp::OwnedWriteHalf,
     domain_dir: &std::path::Path,
     max_size: usize,
-    first_line: &str,
     peer: SocketAddr,
 ) -> Result<bool> {
     // Create directory
@@ -205,13 +203,6 @@ async fn receive_data(
     let mut total_size: usize = 0;
     let mut line_buf = String::new();
     let mut size_exceeded = false;
-
-    // Write first line if it's actual data content
-    if !first_line.is_empty() {
-        let data = format!("{}\r\n", first_line);
-        total_size += data.len();
-        tokio::io::AsyncWriteExt::write_all(&mut file, data.as_bytes()).await?;
-    }
 
     loop {
         line_buf.clear();
