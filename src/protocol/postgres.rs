@@ -34,7 +34,9 @@ impl ProtocolHandler for PostgresHandler {
         let config = self.config_rx.borrow().clone();
         let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
 
+        const MAX_SSL_REQUESTS: usize = 3;
         let startup_read = async {
+            let mut ssl_request_count = 0usize;
             loop {
                 // Read message length (4 bytes, big-endian)
                 let msg_len = client.read_u32().await? as usize;
@@ -53,6 +55,11 @@ impl ProtocolHandler for PostgresHandler {
                 match code {
                     // SSLRequest (80877103) — decline and wait for next message
                     0x04D2_162F => {
+                        ssl_request_count += 1;
+                        if ssl_request_count > MAX_SSL_REQUESTS {
+                            warn!(peer = %peer, "Too many SSLRequest messages");
+                            return Err::<_, Error>(Error::Protocol("Too many SSLRequest messages".into()));
+                        }
                         debug!(peer = %peer, "SSL request received, declining");
                         client.write_all(b"N").await?;
                         continue;

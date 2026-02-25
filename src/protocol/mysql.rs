@@ -134,7 +134,7 @@ impl ProtocolHandler for MysqlHandler {
         let (backend_seq, backend_handshake) = read_mysql_packet(&mut backend_stream).await?;
 
         // Parse backend challenge for auth
-        let backend_challenge = parse_backend_challenge(&backend_handshake);
+        let backend_challenge = parse_backend_challenge(&backend_handshake)?;
 
         // Step 6: Build new HandshakeResponse41 for backend
         let new_response =
@@ -315,21 +315,30 @@ fn parse_handshake_response(data: &[u8]) -> Result<(String, Option<String>)> {
 }
 
 /// Parse challenge bytes from a backend HandshakeV10.
-fn parse_backend_challenge(data: &[u8]) -> Vec<u8> {
-    let mut challenge = Vec::with_capacity(20);
+/// Returns an error if the handshake packet is truncated.
+fn parse_backend_challenge(data: &[u8]) -> Result<Vec<u8>> {
+    // Minimum: protocol_version(1) + server_version(at least 1+null) + connection_id(4) + auth1(8) + filler(1)
+    if data.is_empty() {
+        return Err(Error::Protocol("Empty backend handshake".into()));
+    }
 
     // protocol_version(1) + server_version (find null) + connection_id(4)
     let mut pos = 1;
     while pos < data.len() && data[pos] != 0 {
         pos += 1;
     }
+    if pos >= data.len() {
+        return Err(Error::Protocol("Backend handshake truncated at server version".into()));
+    }
     pos += 1; // skip null
     pos += 4; // skip connection_id
 
     // auth_plugin_data_part_1 (8 bytes)
-    if pos + 8 <= data.len() {
-        challenge.extend_from_slice(&data[pos..pos + 8]);
+    if pos + 8 > data.len() {
+        return Err(Error::Protocol("Backend handshake truncated at auth_plugin_data_1".into()));
     }
+    let mut challenge = Vec::with_capacity(20);
+    challenge.extend_from_slice(&data[pos..pos + 8]);
     pos += 8;
     pos += 1; // filler
 
@@ -341,7 +350,7 @@ fn parse_backend_challenge(data: &[u8]) -> Vec<u8> {
         challenge.extend_from_slice(&data[pos..pos + 12]);
     }
 
-    challenge
+    Ok(challenge)
 }
 
 /// Build a HandshakeResponse41 to send to the backend.
@@ -537,10 +546,20 @@ mod tests {
     fn test_parse_backend_challenge() {
         let challenge = [42u8; 20];
         let handshake = build_handshake_v10(&challenge);
-        let parsed = parse_backend_challenge(&handshake);
+        let parsed = parse_backend_challenge(&handshake).unwrap();
         assert_eq!(parsed.len(), 20);
         assert_eq!(&parsed[..8], &challenge[..8]);
         assert_eq!(&parsed[8..], &challenge[8..]);
+    }
+
+    #[test]
+    fn test_parse_backend_challenge_truncated() {
+        // Empty data
+        assert!(parse_backend_challenge(&[]).is_err());
+        // Just protocol version, no null terminator for server version
+        assert!(parse_backend_challenge(&[10, b'5', b'.', b'7']).is_err());
+        // Server version null terminated but truncated before auth data
+        assert!(parse_backend_challenge(&[10, b'5', 0, 0, 0, 0, 0]).is_err());
     }
 
     #[test]

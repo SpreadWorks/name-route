@@ -129,25 +129,30 @@ impl ProtocolHandler for HttpsHandler {
                         "Certificate does not cover SNI (SAN mismatch)"
                     );
 
-                    let cert_path = self
-                        .tls_config
-                        .cert
-                        .as_deref()
-                        .unwrap_or("/etc/nameroute/cert.pem");
-                    let key_path = self
-                        .tls_config
-                        .key
-                        .as_deref()
-                        .unwrap_or("/etc/nameroute/key.pem");
+                    // Only show detailed diagnostic info (file paths, commands)
+                    // to connections from loopback addresses.
+                    let is_local = peer.ip().is_loopback();
 
-                    let san_list_html: String = self
-                        .san_names
-                        .iter()
-                        .map(|s| format!("  <li><code>{}</code></li>\n", s))
-                        .collect();
+                    let body = if is_local {
+                        let cert_path = self
+                            .tls_config
+                            .cert
+                            .as_deref()
+                            .unwrap_or("/etc/nameroute/cert.pem");
+                        let key_path = self
+                            .tls_config
+                            .key
+                            .as_deref()
+                            .unwrap_or("/etc/nameroute/key.pem");
 
-                    let body = format!(
-                        r#"<!DOCTYPE html>
+                        let san_list_html: String = self
+                            .san_names
+                            .iter()
+                            .map(|s| format!("  <li><code>{}</code></li>\n", s))
+                            .collect();
+
+                        format!(
+                            r#"<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -178,11 +183,34 @@ that matches <code>{sni}</code>.</p>
 sudo systemctl restart nameroute</pre>
 </body>
 </html>"#,
-                        sni = server_name,
-                        san_list_html = san_list_html,
-                        key_path = key_path,
-                        cert_path = cert_path,
-                    );
+                            sni = server_name,
+                            san_list_html = san_list_html,
+                            key_path = key_path,
+                            cert_path = cert_path,
+                        )
+                    } else {
+                        format!(
+                            r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Certificate Error</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #333; }}
+  h1 {{ color: #222; font-size: 1.6em; border-bottom: 2px solid #ccc; padding-bottom: 8px; }}
+  h2.warn {{ color: #c00; }}
+</style>
+</head>
+<body>
+<h1>name-route</h1>
+<h2 class="warn">&#x26A0; Certificate does not cover &ldquo;{sni}&rdquo;</h2>
+<p>The TLS certificate does not include a SAN entry
+that matches <code>{sni}</code>. Please contact the server administrator.</p>
+</body>
+</html>"#,
+                            sni = server_name,
+                        )
+                    };
 
                     let _ = send_html_response(
                         &mut tls_stream,

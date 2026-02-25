@@ -49,7 +49,8 @@ impl ProtocolHandler for SmtpHandler {
         let (reader, mut writer) = client.into_split();
         let mut reader = BufReader::new(reader);
         let mut state = SmtpState::Ehlo;
-        let mut rcpt_domain = String::new();
+        let mut mail_from;
+        let mut rcpt_domains: Vec<String> = Vec::new();
         let mut line_buf = String::new();
 
         // Send greeting
@@ -88,6 +89,9 @@ impl ProtocolHandler for SmtpHandler {
                 }
                 SmtpState::MailFrom => {
                     if upper.starts_with("MAIL FROM:") {
+                        mail_from = line.get(10..).unwrap_or("").trim().to_string();
+                        rcpt_domains.clear();
+                        debug!(peer = %peer, from = %mail_from, "MAIL FROM");
                         writer.write_all(b"250 OK\r\n").await?;
                         state = SmtpState::RcptTo;
                     } else if upper.starts_with("STARTTLS") {
@@ -111,7 +115,10 @@ impl ProtocolHandler for SmtpHandler {
                 SmtpState::RcptTo => {
                     if upper.starts_with("RCPT TO:") {
                         // Extract domain from RCPT TO
-                        rcpt_domain = extract_domain(line);
+                        let domain = extract_domain(line);
+                        if !rcpt_domains.contains(&domain) {
+                            rcpt_domains.push(domain);
+                        }
                         writer.write_all(b"250 OK\r\n").await?;
                         state = SmtpState::Data;
                     } else if upper.starts_with("QUIT") {
@@ -128,8 +135,11 @@ impl ProtocolHandler for SmtpHandler {
                 }
                 SmtpState::Data => {
                     if upper.starts_with("RCPT TO:") {
-                        // Additional recipients - update domain
-                        rcpt_domain = extract_domain(line);
+                        // Additional recipients
+                        let domain = extract_domain(line);
+                        if !rcpt_domains.contains(&domain) {
+                            rcpt_domains.push(domain);
+                        }
                         writer.write_all(b"250 OK\r\n").await?;
                     } else if upper == "DATA" {
                         writer
@@ -148,27 +158,45 @@ impl ProtocolHandler for SmtpHandler {
                 }
                 SmtpState::Receiving => {
                     // Receive data until \r\n.\r\n
-                    // Stream directly to a temp file for memory efficiency
-                    let domain_dir = if rcpt_domain.is_empty() {
-                        mailbox_dir.join("unknown")
+                    // Determine target domain directories
+                    let domains: Vec<String> = if rcpt_domains.is_empty() {
+                        vec!["unknown".to_string()]
                     } else {
-                        mailbox_dir.join(&rcpt_domain)
+                        rcpt_domains.clone()
                     };
+
+                    // Save to the first domain, then hardlink to others
+                    let primary_dir = mailbox_dir.join(&domains[0]);
 
                     match receive_data(
                         &mut reader,
                         &mut writer,
-                        &domain_dir,
+                        &primary_dir,
                         max_size,
                         peer,
                     )
                     .await
                     {
-                        Ok(true) => {
+                        Ok(Some(saved_path)) => {
+                            // Hardlink or copy to additional domain directories
+                            for domain in &domains[1..] {
+                                let extra_dir = mailbox_dir.join(domain);
+                                if let Err(e) = tokio::fs::create_dir_all(&extra_dir).await {
+                                    warn!(domain = %domain, error = %e, "Failed to create mailbox dir");
+                                    continue;
+                                }
+                                let dest = extra_dir.join(saved_path.file_name().unwrap_or_default());
+                                if let Err(_) = tokio::fs::hard_link(&saved_path, &dest).await {
+                                    // Fallback to copy if hardlink fails (cross-device)
+                                    if let Err(e) = tokio::fs::copy(&saved_path, &dest).await {
+                                        warn!(domain = %domain, error = %e, "Failed to copy email to additional domain");
+                                    }
+                                }
+                            }
                             state = SmtpState::MailFrom;
                         }
-                        Ok(false) => {
-                            // Size exceeded, already sent error
+                        Ok(None) => {
+                            // Size exceeded or client disconnected, already handled
                             state = SmtpState::MailFrom;
                         }
                         Err(e) => {
@@ -188,14 +216,14 @@ impl ProtocolHandler for SmtpHandler {
 }
 
 /// Receive DATA content, streaming to a temp file.
-/// Returns Ok(true) if saved successfully, Ok(false) if size exceeded.
+/// Returns Ok(Some(path)) if saved successfully, Ok(None) if size exceeded or client disconnected.
 async fn receive_data(
     reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
     writer: &mut tokio::net::tcp::OwnedWriteHalf,
     domain_dir: &std::path::Path,
     max_size: usize,
     peer: SocketAddr,
-) -> Result<bool> {
+) -> Result<Option<PathBuf>> {
     // Create directory
     tokio::fs::create_dir_all(domain_dir).await?;
 
@@ -257,7 +285,7 @@ async fn receive_data(
         let _ = tokio::fs::remove_file(&filepath).await;
         writer.write_all(b"554 Message too big\r\n").await?;
         warn!(peer = %peer, size = total_size, max = max_size, "Message too big");
-        return Ok(false);
+        return Ok(None);
     }
 
     info!(
@@ -268,7 +296,7 @@ async fn receive_data(
     );
 
     writer.write_all(b"250 OK\r\n").await?;
-    Ok(true)
+    Ok(Some(filepath))
 }
 
 /// Read a line from the buffered reader, limited to `max_bytes`.
