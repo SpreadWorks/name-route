@@ -240,6 +240,10 @@ fn build_handshake_v10(challenge: &[u8; 20]) -> Vec<u8> {
 
 /// Parse the HandshakeResponse41 to extract username and database.
 fn parse_handshake_response(data: &[u8]) -> Result<(String, Option<String>)> {
+    if data.len() < 32 {
+        return Err(Error::Protocol("HandshakeResponse41 too short for header".into()));
+    }
+
     let client_flags = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
 
     // Skip: client_flags(4) + max_packet_size(4) + charset(1) + filler(23) = 32 bytes
@@ -252,19 +256,29 @@ fn parse_handshake_response(data: &[u8]) -> Result<(String, Option<String>)> {
     }
     let username = String::from_utf8_lossy(&data[username_start..pos]).to_string();
     pos += 1; // skip null terminator
+    if pos > data.len() {
+        return Err(Error::Protocol("HandshakeResponse41 truncated after username".into()));
+    }
 
     // Auth response (length-prefixed if CLIENT_SECURE_CONNECTION)
     if client_flags & CLIENT_SECURE_CONNECTION != 0 {
-        if pos < data.len() {
-            let auth_len = data[pos] as usize;
-            pos += 1 + auth_len;
+        if pos >= data.len() {
+            return Err(Error::Protocol("HandshakeResponse41 truncated at auth response".into()));
         }
+        let auth_len = data[pos] as usize;
+        pos += 1;
+        if pos + auth_len > data.len() {
+            return Err(Error::Protocol("HandshakeResponse41 auth data exceeds packet".into()));
+        }
+        pos += auth_len;
     } else {
         // null-terminated auth string
         while pos < data.len() && data[pos] != 0 {
             pos += 1;
         }
-        pos += 1; // skip null
+        if pos < data.len() {
+            pos += 1; // skip null
+        }
     }
 
     // Database (null-terminated, if CLIENT_CONNECT_WITH_DB)
@@ -471,6 +485,32 @@ mod tests {
         let (user, db) = parse_handshake_response(&data).unwrap();
         assert_eq!(user, "root");
         assert_eq!(db, None);
+    }
+
+    #[test]
+    fn test_parse_handshake_response_too_short() {
+        // Less than 32 bytes should return an error, not panic
+        let short_data = vec![0u8; 10];
+        assert!(parse_handshake_response(&short_data).is_err());
+
+        // Exactly 31 bytes should also fail
+        let short_data = vec![0u8; 31];
+        assert!(parse_handshake_response(&short_data).is_err());
+    }
+
+    #[test]
+    fn test_parse_handshake_response_truncated_auth() {
+        // Header (32 bytes) + username "a\0" + auth_len=20 but no auth data
+        let flags = CLIENT_CONNECT_WITH_DB | CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION;
+        let mut data = Vec::new();
+        data.extend_from_slice(&flags.to_le_bytes());
+        data.extend_from_slice(&[0u8; 4]); // max_packet_size
+        data.push(45); // charset
+        data.extend_from_slice(&[0u8; 23]); // filler
+        data.extend_from_slice(b"a\0"); // username
+        data.push(20); // auth_response length = 20, but no actual data follows
+
+        assert!(parse_handshake_response(&data).is_err());
     }
 
     #[test]
