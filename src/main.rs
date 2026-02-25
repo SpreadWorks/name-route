@@ -227,7 +227,7 @@ async fn run_server(
     // Initialize tracing
     init_tracing(&config);
 
-    if !is_root {
+    if !is_root || !config.general.manage_hosts {
         hosts::disable();
     }
 

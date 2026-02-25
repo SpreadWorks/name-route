@@ -32,6 +32,8 @@ pub struct Config {
 pub struct GeneralConfig {
     #[serde(default = "default_log_level")]
     pub log_level: String,
+    #[serde(default = "default_true")]
+    pub manage_hosts: bool,
     pub run_as_user: Option<String>,
     pub run_as_group: Option<String>,
 }
@@ -197,6 +199,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             log_level: default_log_level(),
+            manage_hosts: default_true(),
             run_as_user: None,
             run_as_group: None,
         }

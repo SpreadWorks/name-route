@@ -1,5 +1,6 @@
 [general]
 log_level = "info"                    # ERROR/WARN/INFO/DEBUG
+manage_hosts = true                   # false to disable /etc/hosts management
 # Privilege drop (optional)
 # After binding to privileged ports, drop privileges to the specified user/group.
 # Note: /etc/hosts management will be disabled after dropping privileges.
