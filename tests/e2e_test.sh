@@ -64,27 +64,13 @@ for svc in $SERVICES; do
     done
 done
 
-# ---- 4. Start echo-http-server for static route testing ----
-ECHO_HTTP_PORT=19876
-ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/examples/echo_http_server"
-echo "=== Starting echo-http-server on port $ECHO_HTTP_PORT ==="
-"$ECHO_HTTP_BIN" --port "$ECHO_HTTP_PORT" --body "static-route-ok" &
-ECHO_HTTP_PID=$!
-sleep 0.5
-
-if ! kill -0 "$ECHO_HTTP_PID" 2>/dev/null; then
-    echo "ERROR: echo-http-server exited immediately"
-    exit 1
-fi
-
-# ---- 5. Generate temporary config ----
+# ---- 4. Check for port conflicts before starting any services ----
 PG_PORT=15432
 MYSQL_PORT=13306
 SMTP_PORT=10025
 HTTP_PORT=18080
-POLL_INTERVAL=2
+ECHO_HTTP_PORT=19876
 
-# Check for port conflicts before starting
 PORT_CONFLICT=false
 for CHECK_PORT in $PG_PORT $MYSQL_PORT $SMTP_PORT $HTTP_PORT $ECHO_HTTP_PORT; do
     if ss -tlnH "sport = :$CHECK_PORT" 2>/dev/null | grep -q .; then
@@ -96,6 +82,21 @@ if [ "$PORT_CONFLICT" = true ]; then
     echo "Aborting: required ports are occupied. Stop conflicting processes or run in an isolated environment."
     exit 1
 fi
+
+# ---- 5. Start echo-http-server for static route testing ----
+ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/examples/echo_http_server"
+echo "=== Starting echo-http-server on port $ECHO_HTTP_PORT ==="
+"$ECHO_HTTP_BIN" --port "$ECHO_HTTP_PORT" --body "static-route-ok" &
+ECHO_HTTP_PID=$!
+sleep 0.5
+
+if ! kill -0 "$ECHO_HTTP_PID" 2>/dev/null; then
+    echo "ERROR: echo-http-server exited immediately"
+    exit 1
+fi
+
+# ---- 6. Generate temporary config ----
+POLL_INTERVAL=2
 
 MAILBOX_DIR=$(mktemp -d /tmp/nameroute-e2e-mailbox-XXXXXX)
 TMPCONFIG=$(mktemp /tmp/nameroute-e2e-XXXXXX.toml)
@@ -139,7 +140,7 @@ key = "static1"
 backend = "127.0.0.1:$ECHO_HTTP_PORT"
 EOF
 
-# ---- 6. Start nameroute ----
+# ---- 7. Start nameroute ----
 echo "=== Starting nameroute ==="
 NAMEROUTE_LOG=$(mktemp /tmp/nameroute-e2e-log-XXXXXX.txt)
 "$NAMEROUTE_BIN" --config "$TMPCONFIG" 2>"$NAMEROUTE_LOG" &
@@ -151,7 +152,7 @@ if ! kill -0 "$NAMEROUTE_PID" 2>/dev/null; then
     exit 1
 fi
 
-# ---- 7. Wait for Docker polling ----
+# ---- 8. Wait for Docker polling ----
 echo "=== Waiting for Docker poll (${POLL_INTERVAL}s + 1s) ==="
 sleep $((POLL_INTERVAL + 1))
 
