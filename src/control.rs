@@ -84,7 +84,7 @@ impl Response {
 }
 
 /// Validate a routing key. Only allows hostname-safe characters:
-/// alphanumeric, hyphens, and dots. Must start and end with alphanumeric.
+/// alphanumeric, hyphens, underscores, and dots. Must start and end with alphanumeric.
 /// Max length 253 (DNS label limit).
 pub fn validate_key(key: &str) -> Result<(), String> {
     if key.is_empty() {
@@ -97,13 +97,13 @@ pub fn validate_key(key: &str) -> Result<(), String> {
     // Single character keys (just alnum) are also valid.
     let valid = key
         .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
         && key.as_bytes()[0].is_ascii_alphanumeric()
         && key.as_bytes()[key.len() - 1].is_ascii_alphanumeric()
         && !key.contains("..");
     if !valid {
         return Err(format!(
-            "invalid routing key '{}': must contain only [a-zA-Z0-9.-], start/end with alphanumeric, no consecutive dots",
+            "invalid routing key '{}': must contain only [a-zA-Z0-9._-], start/end with alphanumeric, no consecutive dots",
             key
         ));
     }
@@ -422,6 +422,9 @@ mod tests {
         assert!(validate_key("a").is_ok());
         assert!(validate_key("a1").is_ok());
         assert!(validate_key("sub.domain.app").is_ok());
+        assert!(validate_key("app_extra").is_ok());
+        assert!(validate_key("my_app").is_ok());
+        assert!(validate_key("my_app-v2").is_ok());
     }
 
     #[test]

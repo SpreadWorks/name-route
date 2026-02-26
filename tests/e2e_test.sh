@@ -33,10 +33,19 @@ FAIL=0
 pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 
+# Find an available port by binding to :0 and reading the assigned port
+find_free_port() {
+    python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
+}
+
 # ---- 1. Build nameroute ----
-echo "=== Building nameroute ==="
-cargo build --manifest-path "$PROJECT_DIR/Cargo.toml" 2>&1
-NAMEROUTE_BIN="$PROJECT_DIR/target/debug/nameroute"
+if [ -n "${NAMEROUTE_BIN:-}" ]; then
+    echo "=== Using pre-built nameroute: $NAMEROUTE_BIN ==="
+else
+    echo "=== Building nameroute ==="
+    cargo build --manifest-path "$PROJECT_DIR/Cargo.toml" 2>&1
+    NAMEROUTE_BIN="$PROJECT_DIR/target/debug/nameroute"
+fi
 
 # ---- 2. Start containers ----
 echo "=== Starting containers ==="
@@ -64,27 +73,17 @@ for svc in $SERVICES; do
     done
 done
 
-# ---- 4. Check for port conflicts before starting any services ----
-PG_PORT=15432
-MYSQL_PORT=13306
-SMTP_PORT=10025
-HTTP_PORT=18080
-ECHO_HTTP_PORT=19876
-
-PORT_CONFLICT=false
-for CHECK_PORT in $PG_PORT $MYSQL_PORT $SMTP_PORT $HTTP_PORT $ECHO_HTTP_PORT; do
-    if ss -tlnH "sport = :$CHECK_PORT" 2>/dev/null | grep -q .; then
-        echo "ERROR: Port $CHECK_PORT is already in use"
-        PORT_CONFLICT=true
-    fi
-done
-if [ "$PORT_CONFLICT" = true ]; then
-    echo "Aborting: required ports are occupied. Stop conflicting processes or run in an isolated environment."
-    exit 1
-fi
+# ---- 4. Allocate free ports ----
+echo "=== Allocating free ports ==="
+PG_PORT=$(find_free_port)
+MYSQL_PORT=$(find_free_port)
+SMTP_PORT=$(find_free_port)
+HTTP_PORT=$(find_free_port)
+ECHO_HTTP_PORT=$(find_free_port)
+echo "  PG=$PG_PORT MYSQL=$MYSQL_PORT SMTP=$SMTP_PORT HTTP=$HTTP_PORT ECHO_HTTP=$ECHO_HTTP_PORT"
 
 # ---- 5. Start echo-http-server for static route testing ----
-ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/examples/echo_http_server"
+ECHO_HTTP_BIN="${ECHO_HTTP_BIN:-$PROJECT_DIR/target/debug/examples/echo_http_server}"
 echo "=== Starting echo-http-server on port $ECHO_HTTP_PORT ==="
 "$ECHO_HTTP_BIN" --port "$ECHO_HTTP_PORT" --body "static-route-ok" &
 ECHO_HTTP_PID=$!
@@ -149,6 +148,7 @@ sleep 1
 
 if ! kill -0 "$NAMEROUTE_PID" 2>/dev/null; then
     echo "ERROR: nameroute exited immediately"
+    cat "$NAMEROUTE_LOG"
     exit 1
 fi
 
