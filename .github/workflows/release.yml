@@ -14,11 +14,11 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            binary_name: nameroute-x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
+            binary_name: nameroute-x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            binary_name: nameroute-aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
+            binary_name: nameroute-aarch64-unknown-linux-musl
           - runner: macos-latest
             target: x86_64-apple-darwin
             binary_name: nameroute-x86_64-apple-darwin
@@ -34,6 +34,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
@@ -41,11 +45,11 @@ jobs:
         run: cp target/${{ matrix.target }}/release/nameroute ${{ matrix.binary_name }}
 
       - name: Smoke test binary
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
+        if: contains(matrix.target, 'linux') || matrix.target == 'aarch64-apple-darwin'
         run: ./${{ matrix.binary_name }} --help
 
       - name: E2E smoke test binary
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
+        if: contains(matrix.target, 'linux')
         run: |
           TMPCONFIG=$(mktemp /tmp/e2e-XXXXXX.toml)
           cat > "$TMPCONFIG" <<'EOF'
@@ -91,20 +95,24 @@ jobs:
         include:
           - runner: ubuntu-latest
             arch: amd64
+            target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             arch: arm64
+            target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install packaging dependencies
-        run: sudo apt-get update && sudo apt-get install -y fakeroot
+        run: sudo apt-get update && sudo apt-get install -y fakeroot musl-tools
 
       - name: Build deb package
-        run: ./packaging/build.sh deb
+        run: ./packaging/build.sh deb ${{ matrix.target }}
 
       - name: Test deb install
         run: |
@@ -156,20 +164,24 @@ jobs:
         include:
           - runner: ubuntu-latest
             arch: x86_64
+            target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             arch: aarch64
+            target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install packaging dependencies
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: sudo apt-get update && sudo apt-get install -y rpm musl-tools
 
       - name: Build rpm package
-        run: ./packaging/build.sh rpm
+        run: ./packaging/build.sh rpm ${{ matrix.target }}
 
       - name: Test rpm install
         run: |
@@ -229,7 +241,7 @@ jobs:
         run: |
           mkdir -p release
           # Binaries and their individual SHA256 files
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin; do
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
             cp "artifacts/nameroute-${target}/nameroute-${target}" release/
           done
           # Deb packages (versioned + version-less for latest URL)

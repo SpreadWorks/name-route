@@ -29,8 +29,8 @@ jobs:
         run: |
           SHA256_MACOS_ARM64=$(grep 'nameroute-aarch64-apple-darwin$' SHA256SUMS | awk '{print $1}')
           SHA256_MACOS_X86_64=$(grep 'nameroute-x86_64-apple-darwin$' SHA256SUMS | awk '{print $1}')
-          SHA256_LINUX_ARM64=$(grep 'nameroute-aarch64-unknown-linux-gnu$' SHA256SUMS | awk '{print $1}')
-          SHA256_LINUX_X86_64=$(grep 'nameroute-x86_64-unknown-linux-gnu$' SHA256SUMS | awk '{print $1}')
+          SHA256_LINUX_ARM64=$(grep 'nameroute-aarch64-unknown-linux-musl$' SHA256SUMS | awk '{print $1}')
+          SHA256_LINUX_X86_64=$(grep 'nameroute-x86_64-unknown-linux-musl$' SHA256SUMS | awk '{print $1}')
 
           sed \
             -e "s/%%VERSION%%/${{ steps.version.outputs.version }}/g" \

@@ -11,11 +11,14 @@ if ! command -v cargo &>/dev/null && [[ -f "$HOME/.cargo/env" ]]; then
 fi
 
 usage() {
-    echo "Usage: $0 <format>"
+    echo "Usage: $0 <format> [target]"
     echo ""
     echo "Formats:"
     echo "  deb    Build a Debian package"
     echo "  rpm    Build an RPM package"
+    echo ""
+    echo "Target (optional):"
+    echo "  Rust target triple (e.g. x86_64-unknown-linux-musl)"
     exit 1
 }
 
@@ -36,7 +39,19 @@ get_rpm_arch() {
 
 build_binary() {
     echo "==> Building release binary..."
-    cargo build --release --manifest-path "$PROJECT_ROOT/Cargo.toml"
+    local target_args=()
+    if [[ -n "$TARGET" ]]; then
+        target_args=(--target "$TARGET")
+    fi
+    cargo build --release --manifest-path "$PROJECT_ROOT/Cargo.toml" "${target_args[@]}"
+}
+
+get_binary_path() {
+    if [[ -n "$TARGET" ]]; then
+        echo "$PROJECT_ROOT/target/$TARGET/release/nameroute"
+    else
+        echo "$PROJECT_ROOT/target/release/nameroute"
+    fi
 }
 
 build_deb() {
@@ -66,7 +81,7 @@ build_deb() {
 
     # Binary
     mkdir -p "$staging/usr/bin"
-    cp "$PROJECT_ROOT/target/release/nameroute" "$staging/usr/bin/nameroute"
+    cp "$(get_binary_path)" "$staging/usr/bin/nameroute"
     chmod 0755 "$staging/usr/bin/nameroute"
 
     # systemd unit
@@ -102,7 +117,7 @@ build_rpm() {
     mkdir -p "$rpmbuild_dir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
     # Copy sources
-    cp "$PROJECT_ROOT/target/release/nameroute" "$rpmbuild_dir/SOURCES/nameroute"
+    cp "$(get_binary_path)" "$rpmbuild_dir/SOURCES/nameroute"
     cp "$SCRIPT_DIR/systemd/nameroute.service" "$rpmbuild_dir/SOURCES/nameroute.service"
     cp "$PROJECT_ROOT/config.example.toml" "$rpmbuild_dir/SOURCES/config.toml"
 
@@ -133,6 +148,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 format="$1"
+TARGET="${2:-}"
 
 build_binary
 
