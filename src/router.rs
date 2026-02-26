@@ -102,18 +102,10 @@ mod tests {
             make_backend("pg1"),
         );
 
-        assert!(table
-            .lookup(ProtocolKind::Postgres, "mydb")
-            .is_some());
-        assert!(table
-            .lookup(ProtocolKind::Postgres, "MYDB")
-            .is_some());
-        assert!(table
-            .lookup(ProtocolKind::Postgres, "other")
-            .is_none());
-        assert!(table
-            .lookup(ProtocolKind::Mysql, "mydb")
-            .is_none());
+        assert!(table.lookup(ProtocolKind::Postgres, "mydb").is_some());
+        assert!(table.lookup(ProtocolKind::Postgres, "MYDB").is_some());
+        assert!(table.lookup(ProtocolKind::Postgres, "other").is_none());
+        assert!(table.lookup(ProtocolKind::Mysql, "mydb").is_none());
     }
 
     #[test]
@@ -143,15 +135,9 @@ mod tests {
             make_backend("pg1"),
         );
 
-        assert!(table
-            .lookup(ProtocolKind::Postgres, "mydb")
-            .is_some());
-        assert!(table
-            .lookup(ProtocolKind::Postgres, "MYDB")
-            .is_some());
-        assert!(table
-            .lookup(ProtocolKind::Postgres, "MyDB")
-            .is_some());
+        assert!(table.lookup(ProtocolKind::Postgres, "mydb").is_some());
+        assert!(table.lookup(ProtocolKind::Postgres, "MYDB").is_some());
+        assert!(table.lookup(ProtocolKind::Postgres, "MyDB").is_some());
     }
 
     #[test]

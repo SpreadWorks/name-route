@@ -42,7 +42,9 @@ impl ProtocolHandler for PostgresHandler {
                 let msg_len = client.read_u32().await? as usize;
                 if !(8..=10240).contains(&msg_len) {
                     warn!(peer = %peer, len = msg_len, "Invalid startup message length");
-                    return Err::<_, Error>(Error::Protocol("Invalid startup message length".into()));
+                    return Err::<_, Error>(Error::Protocol(
+                        "Invalid startup message length".into(),
+                    ));
                 }
 
                 // Read the rest of the message
@@ -58,7 +60,9 @@ impl ProtocolHandler for PostgresHandler {
                         ssl_request_count += 1;
                         if ssl_request_count > MAX_SSL_REQUESTS {
                             warn!(peer = %peer, "Too many SSLRequest messages");
-                            return Err::<_, Error>(Error::Protocol("Too many SSLRequest messages".into()));
+                            return Err::<_, Error>(Error::Protocol(
+                                "Too many SSLRequest messages".into(),
+                            ));
                         }
                         debug!(peer = %peer, "SSL request received, declining");
                         client.write_all(b"N").await?;
@@ -246,9 +250,7 @@ mod tests {
         // Verify it contains the code and message
         let body = &msg[5..]; // skip 'E' and 4-byte length
         assert!(body.windows(5).any(|w| w == b"3D000"));
-        assert!(body
-            .windows(10)
-            .any(|w| w == b"does not e"));
+        assert!(body.windows(10).any(|w| w == b"does not e"));
     }
 
     #[test]

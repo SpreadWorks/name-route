@@ -1,6 +1,6 @@
 use std::fs;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use tracing::{debug, error, info};
 

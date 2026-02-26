@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use rand::Rng;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
+use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
@@ -50,18 +50,14 @@ impl ProtocolHandler for MysqlHandler {
         write_mysql_packet(&mut client, 0, &handshake).await?;
 
         // Step 2: Read HandshakeResponse41 from client (with timeout)
-        let (seq, response_data) = match tokio::time::timeout(
-            handshake_timeout,
-            read_mysql_packet(&mut client),
-        )
-        .await
-        {
-            Ok(result) => result?,
-            Err(_) => {
-                warn!(peer = %peer, "MySQL handshake timed out");
-                return Ok(());
-            }
-        };
+        let (seq, response_data) =
+            match tokio::time::timeout(handshake_timeout, read_mysql_packet(&mut client)).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    warn!(peer = %peer, "MySQL handshake timed out");
+                    return Ok(());
+                }
+            };
         if response_data.len() < 32 {
             warn!(peer = %peer, len = response_data.len(), "HandshakeResponse41 too short");
             return Err(Error::Protocol("HandshakeResponse41 too short".into()));
@@ -137,8 +133,7 @@ impl ProtocolHandler for MysqlHandler {
         let backend_challenge = parse_backend_challenge(&backend_handshake)?;
 
         // Step 6: Build new HandshakeResponse41 for backend
-        let new_response =
-            build_handshake_response(&username, db_name, &backend_challenge);
+        let new_response = build_handshake_response(&username, db_name, &backend_challenge);
         write_mysql_packet(&mut backend_stream, backend_seq + 1, &new_response).await?;
 
         // Step 7: Read backend's OK/ERR response
@@ -174,7 +169,11 @@ impl ProtocolHandler for MysqlHandler {
                 peer = %peer,
                 "Backend sent AuthSwitchRequest; auth exchange not supported"
             );
-            let err = build_err_packet(1045, "28000", "Authentication method not supported by proxy");
+            let err = build_err_packet(
+                1045,
+                "28000",
+                "Authentication method not supported by proxy",
+            );
             write_mysql_packet(&mut client, seq + 2, &err).await?;
             return Ok(());
         }
@@ -260,7 +259,9 @@ fn build_handshake_v10(challenge: &[u8; 20]) -> Vec<u8> {
 /// Parse the HandshakeResponse41 to extract username and database.
 fn parse_handshake_response(data: &[u8]) -> Result<(String, Option<String>)> {
     if data.len() < 32 {
-        return Err(Error::Protocol("HandshakeResponse41 too short for header".into()));
+        return Err(Error::Protocol(
+            "HandshakeResponse41 too short for header".into(),
+        ));
     }
 
     let client_flags = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
@@ -276,18 +277,24 @@ fn parse_handshake_response(data: &[u8]) -> Result<(String, Option<String>)> {
     let username = String::from_utf8_lossy(&data[username_start..pos]).to_string();
     pos += 1; // skip null terminator
     if pos > data.len() {
-        return Err(Error::Protocol("HandshakeResponse41 truncated after username".into()));
+        return Err(Error::Protocol(
+            "HandshakeResponse41 truncated after username".into(),
+        ));
     }
 
     // Auth response (length-prefixed if CLIENT_SECURE_CONNECTION)
     if client_flags & CLIENT_SECURE_CONNECTION != 0 {
         if pos >= data.len() {
-            return Err(Error::Protocol("HandshakeResponse41 truncated at auth response".into()));
+            return Err(Error::Protocol(
+                "HandshakeResponse41 truncated at auth response".into(),
+            ));
         }
         let auth_len = data[pos] as usize;
         pos += 1;
         if pos + auth_len > data.len() {
-            return Err(Error::Protocol("HandshakeResponse41 auth data exceeds packet".into()));
+            return Err(Error::Protocol(
+                "HandshakeResponse41 auth data exceeds packet".into(),
+            ));
         }
         pos += auth_len;
     } else {
@@ -328,14 +335,18 @@ fn parse_backend_challenge(data: &[u8]) -> Result<Vec<u8>> {
         pos += 1;
     }
     if pos >= data.len() {
-        return Err(Error::Protocol("Backend handshake truncated at server version".into()));
+        return Err(Error::Protocol(
+            "Backend handshake truncated at server version".into(),
+        ));
     }
     pos += 1; // skip null
     pos += 4; // skip connection_id
 
     // auth_plugin_data_part_1 (8 bytes)
     if pos + 8 > data.len() {
-        return Err(Error::Protocol("Backend handshake truncated at auth_plugin_data_1".into()));
+        return Err(Error::Protocol(
+            "Backend handshake truncated at auth_plugin_data_1".into(),
+        ));
     }
     let mut challenge = Vec::with_capacity(20);
     challenge.extend_from_slice(&data[pos..pos + 8]);

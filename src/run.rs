@@ -39,7 +39,10 @@ async fn run_port_mode(
     // Try to reuse port from existing route for the same protocol+key
     let port = match find_existing_port(protocol, &key, mgmt_port).await {
         Some(p) if port_is_available(p) => {
-            eprintln!("nameroute: reusing existing port {} for {}:{}", p, protocol, key);
+            eprintln!(
+                "nameroute: reusing existing port {} for {}:{}",
+                p, protocol, key
+            );
             p
         }
         Some(p) => {
@@ -61,21 +64,20 @@ async fn run_port_mode(
     let port_str = port.to_string();
 
     // Register route with daemon
-    let resp = control::send_request(mgmt_port, &Request::AddRoute {
-        protocol,
-        key: key.clone(),
-        backend: backend.clone(),
-        tls_mode,
-    })
+    let resp = control::send_request(
+        mgmt_port,
+        &Request::AddRoute {
+            protocol,
+            key: key.clone(),
+            backend: backend.clone(),
+            tls_mode,
+        },
+    )
     .await
     .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
     if !resp.ok {
-        return Err(format!(
-            "failed to add route: {}",
-            resp.error.unwrap_or_default()
-        )
-        .into());
+        return Err(format!("failed to add route: {}", resp.error.unwrap_or_default()).into());
     }
 
     eprintln!(
@@ -160,7 +162,8 @@ async fn run_detect_port(
             println!("{}", line);
             if !*stdout_tx.borrow() {
                 if let Some(port) = extract_port(&stdout_re, &line) {
-                    let _ = register_route(protocol, &stdout_key, port, stdout_tls_mode, mgmt_port).await;
+                    let _ = register_route(protocol, &stdout_key, port, stdout_tls_mode, mgmt_port)
+                        .await;
                     let _ = stdout_tx.send(true);
                 }
             }
@@ -178,7 +181,8 @@ async fn run_detect_port(
             eprintln!("{}", line);
             if !*stderr_tx.borrow() {
                 if let Some(port) = extract_port(&stderr_re, &line) {
-                    let _ = register_route(protocol, &stderr_key, port, stderr_tls_mode, mgmt_port).await;
+                    let _ = register_route(protocol, &stderr_key, port, stderr_tls_mode, mgmt_port)
+                        .await;
                     let _ = stderr_tx.send(true);
                 }
             }
@@ -226,12 +230,15 @@ async fn register_route(
         port, protocol, key, backend
     );
 
-    let resp = control::send_request(mgmt_port, &Request::AddRoute {
-        protocol,
-        key: key.to_string(),
-        backend,
-        tls_mode,
-    })
+    let resp = control::send_request(
+        mgmt_port,
+        &Request::AddRoute {
+            protocol,
+            key: key.to_string(),
+            backend,
+            tls_mode,
+        },
+    )
     .await?;
 
     if resp.ok {
@@ -250,10 +257,13 @@ async fn register_route(
 
 async fn cleanup_route(protocol: ProtocolKind, key: &str, mgmt_port: u16) {
     info!(protocol = %protocol, key = %key, "Removing route");
-    match control::send_request(mgmt_port, &Request::RemoveRoute {
-        protocol,
-        key: key.to_string(),
-    })
+    match control::send_request(
+        mgmt_port,
+        &Request::RemoveRoute {
+            protocol,
+            key: key.to_string(),
+        },
+    )
     .await
     {
         Ok(resp) => {
@@ -277,7 +287,9 @@ fn port_is_available(port: u16) -> bool {
 }
 
 async fn find_existing_port(protocol: ProtocolKind, key: &str, mgmt_port: u16) -> Option<u16> {
-    let resp = control::send_request(mgmt_port, &Request::ListRoutes).await.ok()?;
+    let resp = control::send_request(mgmt_port, &Request::ListRoutes)
+        .await
+        .ok()?;
     let routes = resp.routes?;
     for route in routes {
         if route.protocol == protocol && route.key == key {

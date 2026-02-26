@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use tokio::io::{AsyncWriteExt, copy_bidirectional};
+use tokio::io::{copy_bidirectional, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio_rustls::TlsAcceptor;
@@ -64,18 +64,14 @@ impl ProtocolHandler for HttpsHandler {
         // 1. Read ClientHello and extract SNI (with timeout)
         let config = self.config_rx.borrow().clone();
         let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
-        let (server_name, buffer) = match tokio::time::timeout(
-            handshake_timeout,
-            tls::read_sni(&mut client),
-        )
-        .await
-        {
-            Ok(result) => result?,
-            Err(_) => {
-                warn!(peer = %peer, "HTTPS SNI read timed out");
-                return Ok(());
-            }
-        };
+        let (server_name, buffer) =
+            match tokio::time::timeout(handshake_timeout, tls::read_sni(&mut client)).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    warn!(peer = %peer, "HTTPS SNI read timed out");
+                    return Ok(());
+                }
+            };
         debug!(peer = %peer, sni = %server_name, "SNI extracted");
 
         // 2. Extract subdomain from SNI
@@ -114,8 +110,7 @@ impl ProtocolHandler for HttpsHandler {
         match backend.tls_mode {
             TlsMode::Passthrough => {
                 // Connect to backend and forward the ClientHello + bidirectional copy
-                let mut backend_stream =
-                    proxy::connect_backend(&backend, &config.backend).await?;
+                let mut backend_stream = proxy::connect_backend(&backend, &config.backend).await?;
                 backend_stream.write_all(&buffer).await?;
 
                 let relay_timeout = Duration::from_secs(1800);
@@ -158,9 +153,7 @@ impl ProtocolHandler for HttpsHandler {
                 })?;
 
                 // Check SAN coverage after TLS handshake
-                if !self.san_names.is_empty()
-                    && !tls::matches_san(&server_name, &self.san_names)
-                {
+                if !self.san_names.is_empty() && !tls::matches_san(&server_name, &self.san_names) {
                     warn!(
                         peer = %peer,
                         sni = %server_name,
@@ -173,16 +166,18 @@ impl ProtocolHandler for HttpsHandler {
                     let escaped_sni = html_escape(&server_name);
 
                     let body = if is_local {
-                        let cert_path = html_escape(self
-                            .tls_config
-                            .cert
-                            .as_deref()
-                            .unwrap_or("/etc/nameroute/cert.pem"));
-                        let key_path = html_escape(self
-                            .tls_config
-                            .key
-                            .as_deref()
-                            .unwrap_or("/etc/nameroute/key.pem"));
+                        let cert_path = html_escape(
+                            self.tls_config
+                                .cert
+                                .as_deref()
+                                .unwrap_or("/etc/nameroute/cert.pem"),
+                        );
+                        let key_path = html_escape(
+                            self.tls_config
+                                .key
+                                .as_deref()
+                                .unwrap_or("/etc/nameroute/key.pem"),
+                        );
 
                         let san_list_html: String = self
                             .san_names
@@ -251,13 +246,8 @@ that matches <code>{sni}</code>. Please contact the server administrator.</p>
                         )
                     };
 
-                    let _ = send_html_response(
-                        &mut tls_stream,
-                        421,
-                        "Misdirected Request",
-                        &body,
-                    )
-                    .await;
+                    let _ = send_html_response(&mut tls_stream, 421, "Misdirected Request", &body)
+                        .await;
                     return Ok(());
                 }
 

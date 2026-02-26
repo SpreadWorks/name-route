@@ -231,7 +231,6 @@ impl Default for SmtpConfig {
     }
 }
 
-
 impl Default for HealthCheckConfig {
     fn default() -> Self {
         Self {
@@ -244,36 +243,51 @@ impl Default for HealthCheckConfig {
 
 fn default_listeners() -> HashMap<String, ListenerConfig> {
     let mut m = HashMap::new();
-    m.insert("postgres".to_string(), ListenerConfig {
-        protocol: ProtocolKind::Postgres,
-        bind: "127.0.0.1:15432".to_string(),
-        tls_mode: None,
-        enabled: true,
-    });
-    m.insert("mysql".to_string(), ListenerConfig {
-        protocol: ProtocolKind::Mysql,
-        bind: "127.0.0.1:13306".to_string(),
-        tls_mode: None,
-        enabled: true,
-    });
-    m.insert("http".to_string(), ListenerConfig {
-        protocol: ProtocolKind::Http,
-        bind: "127.0.0.1:8080".to_string(),
-        tls_mode: None,
-        enabled: true,
-    });
-    m.insert("smtp".to_string(), ListenerConfig {
-        protocol: ProtocolKind::Smtp,
-        bind: "127.0.0.1:10025".to_string(),
-        tls_mode: None,
-        enabled: true,
-    });
-    m.insert("https".to_string(), ListenerConfig {
-        protocol: ProtocolKind::Https,
-        bind: "127.0.0.1:8443".to_string(),
-        tls_mode: None,
-        enabled: true,
-    });
+    m.insert(
+        "postgres".to_string(),
+        ListenerConfig {
+            protocol: ProtocolKind::Postgres,
+            bind: "127.0.0.1:15432".to_string(),
+            tls_mode: None,
+            enabled: true,
+        },
+    );
+    m.insert(
+        "mysql".to_string(),
+        ListenerConfig {
+            protocol: ProtocolKind::Mysql,
+            bind: "127.0.0.1:13306".to_string(),
+            tls_mode: None,
+            enabled: true,
+        },
+    );
+    m.insert(
+        "http".to_string(),
+        ListenerConfig {
+            protocol: ProtocolKind::Http,
+            bind: "127.0.0.1:8080".to_string(),
+            tls_mode: None,
+            enabled: true,
+        },
+    );
+    m.insert(
+        "smtp".to_string(),
+        ListenerConfig {
+            protocol: ProtocolKind::Smtp,
+            bind: "127.0.0.1:10025".to_string(),
+            tls_mode: None,
+            enabled: true,
+        },
+    );
+    m.insert(
+        "https".to_string(),
+        ListenerConfig {
+            protocol: ProtocolKind::Https,
+            bind: "127.0.0.1:8443".to_string(),
+            tls_mode: None,
+            enabled: true,
+        },
+    );
     m
 }
 
@@ -331,9 +345,10 @@ impl Config {
             lc.protocol == ProtocolKind::Https
                 && lc.enabled
                 && lc.tls_mode == Some(TlsMode::Terminate)
-        }) || self.routes.iter().any(|r| {
-            r.protocol == ProtocolKind::Https && r.tls_mode == Some(TlsMode::Terminate)
-        });
+        }) || self
+            .routes
+            .iter()
+            .any(|r| r.protocol == ProtocolKind::Https && r.tls_mode == Some(TlsMode::Terminate));
         if needs_terminate && (self.tls.cert.is_none() || self.tls.key.is_none()) {
             return Err(Error::Config(
                 "TLS terminate mode requires [tls] cert and key. \
@@ -391,5 +406,4 @@ log_level = "debug"
         assert_eq!(config.backend.connect_retries, 3);
         assert_eq!(config.smtp.max_message_size, 10_485_760);
     }
-
 }

@@ -14,12 +14,10 @@ pub async fn signal_handler(
     config_tx: watch::Sender<Config>,
     cancel: CancellationToken,
 ) {
-    use tokio::signal::unix::{SignalKind, signal};
+    use tokio::signal::unix::{signal, SignalKind};
 
-    let mut sigterm =
-        signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-    let mut sighup =
-        signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
+    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+    let mut sighup = signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
 
     loop {
         tokio::select! {
@@ -76,8 +74,15 @@ pub fn drop_privileges(user: Option<&str>, group: Option<&str>) -> crate::error:
 
     if let Some(group_name) = group {
         let gid = nix::unistd::Group::from_name(group_name)
-            .map_err(|e| crate::error::Error::Config(format!("Failed to lookup group '{}': {}", group_name, e)))?
-            .ok_or_else(|| crate::error::Error::Config(format!("Group '{}' not found", group_name)))?
+            .map_err(|e| {
+                crate::error::Error::Config(format!(
+                    "Failed to lookup group '{}': {}",
+                    group_name, e
+                ))
+            })?
+            .ok_or_else(|| {
+                crate::error::Error::Config(format!("Group '{}' not found", group_name))
+            })?
             .gid;
         // Clear supplementary groups before changing primary group
         setgroups(&[gid]).map_err(|e| {
@@ -91,7 +96,9 @@ pub fn drop_privileges(user: Option<&str>, group: Option<&str>) -> crate::error:
 
     if let Some(user_name) = user {
         let uid = nix::unistd::User::from_name(user_name)
-            .map_err(|e| crate::error::Error::Config(format!("Failed to lookup user '{}': {}", user_name, e)))?
+            .map_err(|e| {
+                crate::error::Error::Config(format!("Failed to lookup user '{}': {}", user_name, e))
+            })?
             .ok_or_else(|| crate::error::Error::Config(format!("User '{}' not found", user_name)))?
             .uid;
         setuid(uid).map_err(|e| {

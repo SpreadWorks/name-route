@@ -4,8 +4,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use rustls::ServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::ServerConfig;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
@@ -25,9 +25,8 @@ pub fn create_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor> {
         .as_deref()
         .ok_or_else(|| Error::Config("TLS key path is not configured".to_string()))?;
 
-    let cert_pem = fs::read(cert_path).map_err(|e| {
-        Error::Config(format!("Failed to read TLS cert {:?}: {}", cert_path, e))
-    })?;
+    let cert_pem = fs::read(cert_path)
+        .map_err(|e| Error::Config(format!("Failed to read TLS cert {:?}: {}", cert_path, e)))?;
     let certs: Vec<CertificateDer> = rustls_pemfile::certs(&mut &*cert_pem)
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| Error::Config(format!("Failed to parse TLS cert PEM: {}", e)))?;
@@ -38,14 +37,11 @@ pub fn create_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor> {
         )));
     }
 
-    let key_pem = fs::read(key_path).map_err(|e| {
-        Error::Config(format!("Failed to read TLS key {:?}: {}", key_path, e))
-    })?;
+    let key_pem = fs::read(key_path)
+        .map_err(|e| Error::Config(format!("Failed to read TLS key {:?}: {}", key_path, e)))?;
     let key: PrivateKeyDer = rustls_pemfile::private_key(&mut &*key_pem)
         .map_err(|e| Error::Config(format!("Failed to parse TLS key PEM: {}", e)))?
-        .ok_or_else(|| {
-            Error::Config(format!("No private key found in {:?}", key_path))
-        })?;
+        .ok_or_else(|| Error::Config(format!("No private key found in {:?}", key_path)))?;
 
     let config = ServerConfig::builder()
         .with_no_client_auth()
@@ -65,12 +61,11 @@ pub fn extract_san_dns_names_from_pem(tls_config: &TlsConfig) -> Vec<String> {
         Ok(d) => d,
         Err(_) => return vec![],
     };
-    let certs: Vec<CertificateDer> = match rustls_pemfile::certs(&mut &*cert_pem)
-        .collect::<std::result::Result<Vec<_>, _>>()
-    {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
+    let certs: Vec<CertificateDer> =
+        match rustls_pemfile::certs(&mut &*cert_pem).collect::<std::result::Result<Vec<_>, _>>() {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
     if let Some(cert) = certs.first() {
         extract_san_dns_names(cert.as_ref())
     } else {
@@ -126,9 +121,10 @@ pub async fn read_sni(stream: &mut TcpStream) -> Result<(String, Vec<u8>)> {
 
     // Read TLS record header (5 bytes): content_type(1) + version(2) + length(2)
     let mut header = [0u8; 5];
-    stream.read_exact(&mut header).await.map_err(|e| {
-        Error::Connection(format!("Failed to read TLS record header: {}", e))
-    })?;
+    stream
+        .read_exact(&mut header)
+        .await
+        .map_err(|e| Error::Connection(format!("Failed to read TLS record header: {}", e)))?;
 
     if header[0] != 22 {
         return Err(Error::Connection(format!(
@@ -147,9 +143,10 @@ pub async fn read_sni(stream: &mut TcpStream) -> Result<(String, Vec<u8>)> {
 
     // Read the full handshake message
     let mut payload = vec![0u8; record_len];
-    stream.read_exact(&mut payload).await.map_err(|e| {
-        Error::Connection(format!("Failed to read TLS handshake payload: {}", e))
-    })?;
+    stream
+        .read_exact(&mut payload)
+        .await
+        .map_err(|e| Error::Connection(format!("Failed to read TLS handshake payload: {}", e)))?;
 
     // Combine header + payload into the buffer we'll return
     let mut buffer = Vec::with_capacity(5 + record_len);
@@ -185,28 +182,36 @@ fn parse_sni_from_client_hello(data: &[u8]) -> Result<String> {
 
     // Session ID
     if data.len() < pos + 1 {
-        return Err(Error::Connection("ClientHello truncated at session_id_len".to_string()));
+        return Err(Error::Connection(
+            "ClientHello truncated at session_id_len".to_string(),
+        ));
     }
     let session_id_len = data[pos] as usize;
     pos += 1 + session_id_len;
 
     // Cipher suites
     if data.len() < pos + 2 {
-        return Err(Error::Connection("ClientHello truncated at cipher_suites_len".to_string()));
+        return Err(Error::Connection(
+            "ClientHello truncated at cipher_suites_len".to_string(),
+        ));
     }
     let cipher_suites_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
     pos += 2 + cipher_suites_len;
 
     // Compression methods
     if data.len() < pos + 1 {
-        return Err(Error::Connection("ClientHello truncated at compression_len".to_string()));
+        return Err(Error::Connection(
+            "ClientHello truncated at compression_len".to_string(),
+        ));
     }
     let compression_len = data[pos] as usize;
     pos += 1 + compression_len;
 
     // Extensions
     if data.len() < pos + 2 {
-        return Err(Error::Connection("No extensions in ClientHello".to_string()));
+        return Err(Error::Connection(
+            "No extensions in ClientHello".to_string(),
+        ));
     }
     let extensions_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
     pos += 2;
@@ -245,7 +250,9 @@ fn parse_sni_from_client_hello(data: &[u8]) -> Result<String> {
         pos += ext_len;
     }
 
-    Err(Error::Connection("No SNI extension found in ClientHello".to_string()))
+    Err(Error::Connection(
+        "No SNI extension found in ClientHello".to_string(),
+    ))
 }
 
 /// A stream that replays a prefix buffer before reading from the inner stream.
@@ -370,10 +377,7 @@ mod tests {
     /// Simulates after user runs `xargs mkcert < /etc/nameroute/domains`.
     #[test]
     fn test_scenario_regenerated_cert_coverage() {
-        let san = vec![
-            "*.localhost".to_string(),
-            "*.echub.localhost".to_string(),
-        ];
+        let san = vec!["*.localhost".to_string(), "*.echub.localhost".to_string()];
 
         // Single-level keys — covered by *.localhost
         assert!(matches_san("myapp.localhost", &san));
@@ -482,9 +486,10 @@ mod tests {
         let data = vec![2, 0, 0, 0];
         let result = parse_sni_from_client_hello(&data);
         assert!(result.is_err());
-        assert!(
-            result.unwrap_err().to_string().contains("Not a ClientHello"),
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Not a ClientHello"),);
     }
 
     /// Truncated handshake data.
@@ -549,10 +554,7 @@ mod tests {
 
         let base = "localhost";
         let san_default = vec!["*.localhost".to_string()];
-        let san_extended = vec![
-            "*.localhost".to_string(),
-            "*.echub.localhost".to_string(),
-        ];
+        let san_extended = vec!["*.localhost".to_string(), "*.echub.localhost".to_string()];
 
         // Case 1: Simple key — covered by default cert
         let sni = "myapp.localhost";

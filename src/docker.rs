@@ -173,9 +173,7 @@ pub async fn poll_once(docker: &Docker) -> crate::error::Result<RoutingTable> {
     Ok(table)
 }
 
-fn extract_container_ips(
-    container: &bollard::models::ContainerSummary,
-) -> Vec<IpAddr> {
+fn extract_container_ips(container: &bollard::models::ContainerSummary) -> Vec<IpAddr> {
     let mut addrs = Vec::new();
 
     if let Some(network_settings) = &container.network_settings {

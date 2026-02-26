@@ -285,11 +285,7 @@ mod tests {
                 "pattern '{}' does not start with '*.'",
                 line
             );
-            assert!(
-                !line.contains(' '),
-                "pattern '{}' contains spaces",
-                line
-            );
+            assert!(!line.contains(' '), "pattern '{}' contains spaces", line);
         }
     }
 
