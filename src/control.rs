@@ -110,16 +110,21 @@ fn validate_key(key: &str) -> Result<(), String> {
 
 // --- Server ---
 
+pub struct ControlServerConfig {
+    pub port: u16,
+    pub base_domain: String,
+    pub tls_cert: String,
+    pub tls_key: String,
+    pub listener_ports: HashMap<ProtocolKind, u16>,
+}
+
 pub async fn run_control_server(
-    port: u16,
+    cfg: ControlServerConfig,
     table: SharedRoutingTable,
     health_map: SharedHealthMap,
-    base_domain: String,
-    tls_cert: String,
-    tls_key: String,
-    listener_ports: HashMap<ProtocolKind, u16>,
     cancel: CancellationToken,
 ) {
+    let port = cfg.port;
     let listener = match TcpListener::bind(("127.0.0.1", port)).await {
         Ok(l) => l,
         Err(e) => {
@@ -142,10 +147,10 @@ pub async fn run_control_server(
                     Ok((stream, _)) => {
                         let table = table.clone();
                         let health_map = health_map.clone();
-                        let base_domain = base_domain.clone();
-                        let tls_cert = tls_cert.clone();
-                        let tls_key = tls_key.clone();
-                        let listener_ports = listener_ports.clone();
+                        let base_domain = cfg.base_domain.clone();
+                        let tls_cert = cfg.tls_cert.clone();
+                        let tls_key = cfg.tls_key.clone();
+                        let listener_ports = cfg.listener_ports.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handle_connection(stream, table, health_map, &base_domain, &tls_cert, &tls_key, &listener_ports).await {
                                 warn!(error = %e, "Management connection error");
@@ -185,7 +190,7 @@ async fn handle_connection(
             break;
         }
         let line = line.trim_end();
-        let response = match serde_json::from_str::<Request>(&line) {
+        let response = match serde_json::from_str::<Request>(line) {
             Ok(req) => handle_request(req, &table, &health_map, base_domain, tls_cert, tls_key, listener_ports).await,
             Err(e) => Response::error(format!("invalid request: {}", e)),
         };

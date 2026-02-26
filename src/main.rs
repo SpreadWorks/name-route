@@ -128,8 +128,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("No routes registered.");
                 } else {
                     println!(
-                        "{:<12} {:<20} {:<25} {:<8} {:<10} {}",
-                        "PROTOCOL", "KEY", "BACKEND", "SOURCE", "HEALTH", "URL"
+                        "{:<12} {:<20} {:<25} {:<8} {:<10} URL",
+                        "PROTOCOL", "KEY", "BACKEND", "SOURCE", "HEALTH"
                     );
                     for r in &routes {
                         let url = r.url.as_deref().unwrap_or("");
@@ -355,7 +355,7 @@ async fn run_server(
         {
             let mut table = routing_table.write().await;
             for ((protocol, key), backend) in discovery_table.entries() {
-                if table.lookup(*protocol, key).map_or(false, |b| b.source == "static") {
+                if table.lookup(*protocol, key).is_some_and(|b| b.source == "static") {
                     continue;
                 }
                 table.insert(*protocol, key.clone(), backend.clone());
@@ -485,7 +485,18 @@ async fn run_server(
         }
         let ctrl_cancel = cancel.clone();
         tokio::spawn(async move {
-            control::run_control_server(mgmt_port, ctrl_table, ctrl_health_map, ctrl_base_domain, ctrl_tls_cert, ctrl_tls_key, listener_ports, ctrl_cancel).await;
+            control::run_control_server(
+                control::ControlServerConfig {
+                    port: mgmt_port,
+                    base_domain: ctrl_base_domain,
+                    tls_cert: ctrl_tls_cert,
+                    tls_key: ctrl_tls_key,
+                    listener_ports,
+                },
+                ctrl_table,
+                ctrl_health_map,
+                ctrl_cancel,
+            ).await;
         });
     }
 

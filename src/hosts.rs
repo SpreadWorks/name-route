@@ -110,7 +110,7 @@ fn rebuild_hosts(content: &str, hostnames: &[String]) -> String {
     }
 
     // Remove trailing empty lines
-    while lines.last().map_or(false, |l| l.is_empty()) {
+    while lines.last().is_some_and(|l| l.is_empty()) {
         lines.pop();
     }
 

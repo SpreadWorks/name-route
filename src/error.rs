@@ -14,14 +14,8 @@ pub enum Error {
     #[error("Protocol error: {0}")]
     Protocol(String),
 
-    #[error("Routing error: no backend for {protocol}:{key}")]
-    NoBackend { protocol: String, key: String },
-
     #[error("Connection error: {0}")]
     Connection(String),
-
-    #[error("Control socket error: {0}")]
-    Control(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

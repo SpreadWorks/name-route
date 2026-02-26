@@ -30,11 +30,9 @@ impl RoutingTable {
     /// Insert a route. Key is lowercased. Returns true if there was a collision.
     pub fn insert(&mut self, protocol: ProtocolKind, key: String, backend: Backend) -> bool {
         let normalized_key = key.to_lowercase();
-        let had_existing = self
-            .routes
+        self.routes
             .insert((protocol, normalized_key), backend)
-            .is_some();
-        had_existing
+            .is_some()
     }
 
     pub fn lookup(&self, protocol: ProtocolKind, key: &str) -> Option<&Backend> {
@@ -44,10 +42,6 @@ impl RoutingTable {
 
     pub fn len(&self) -> usize {
         self.routes.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.routes.is_empty()
     }
 
     /// Remove all routes with the given source.

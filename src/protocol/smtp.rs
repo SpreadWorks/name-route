@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use chrono::Utc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
@@ -19,13 +19,11 @@ const MAX_DATA_LINE: usize = 102_400;
 
 #[derive(Debug, PartialEq)]
 enum SmtpState {
-    Greeting,
     Ehlo,
     MailFrom,
     RcptTo,
     Data,
     Receiving,
-    Done,
 }
 
 pub struct SmtpHandler {
@@ -186,7 +184,7 @@ impl ProtocolHandler for SmtpHandler {
                                     continue;
                                 }
                                 let dest = extra_dir.join(saved_path.file_name().unwrap_or_default());
-                                if let Err(_) = tokio::fs::hard_link(&saved_path, &dest).await {
+                                if tokio::fs::hard_link(&saved_path, &dest).await.is_err() {
                                     // Fallback to copy if hardlink fails (cross-device)
                                     if let Err(e) = tokio::fs::copy(&saved_path, &dest).await {
                                         warn!(domain = %domain, error = %e, "Failed to copy email to additional domain");
@@ -204,9 +202,6 @@ impl ProtocolHandler for SmtpHandler {
                             break;
                         }
                     }
-                }
-                SmtpState::Greeting | SmtpState::Done => {
-                    break;
                 }
             }
         }

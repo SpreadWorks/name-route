@@ -107,7 +107,7 @@ pub struct DiscoveryConfig {
     pub poll_interval: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct TlsConfig {
     #[serde(default)]
     pub cert: Option<String>,
@@ -231,14 +231,6 @@ impl Default for SmtpConfig {
     }
 }
 
-impl Default for TlsConfig {
-    fn default() -> Self {
-        Self {
-            cert: None,
-            key: None,
-        }
-    }
-}
 
 impl Default for HealthCheckConfig {
     fn default() -> Self {

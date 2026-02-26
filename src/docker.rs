@@ -170,7 +170,7 @@ fn extract_container_ips(
 
     if let Some(network_settings) = &container.network_settings {
         if let Some(networks) = &network_settings.networks {
-            for (_net_name, net) in networks {
+            for net in networks.values() {
                 if let Some(ip_str) = &net.ip_address {
                     if !ip_str.is_empty() {
                         if let Ok(ip) = ip_str.parse::<IpAddr>() {

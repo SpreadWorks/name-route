@@ -57,11 +57,11 @@ pub async fn polling_loop(
                 // Check each backend concurrently
                 let mut handles = Vec::with_capacity(snapshot.len());
                 for (route_key, addr) in snapshot {
-                    let timeout = timeout;
+                    let task_timeout = timeout;
                     handles.push(tokio::spawn(async move {
                         let status = match addr {
                             Some(addr) => {
-                                match tokio::time::timeout(timeout, TcpStream::connect(addr)).await
+                                match tokio::time::timeout(task_timeout, TcpStream::connect(addr)).await
                                 {
                                     Ok(Ok(_)) => HealthStatus::Healthy,
                                     _ => HealthStatus::Unhealthy,

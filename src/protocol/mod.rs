@@ -62,17 +62,12 @@ impl ProtocolKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TlsMode {
+    #[default]
     Passthrough,
     Terminate,
-}
-
-impl Default for TlsMode {
-    fn default() -> Self {
-        Self::Passthrough
-    }
 }
 
 impl fmt::Display for TlsMode {

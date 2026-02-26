@@ -61,7 +61,6 @@ where
     // Read request line + headers into buffer until \r\n\r\n
     let mut buf = Vec::with_capacity(4096);
     let mut buf_reader = BufReader::new(client);
-    let header_end;
 
     let header_read = async {
         loop {
@@ -82,14 +81,14 @@ where
             }
 
             // Search for \r\n\r\n starting from where it could first appear
-            let search_start = if prev_len >= 3 { prev_len - 3 } else { 0 };
+            let search_start = prev_len.saturating_sub(3);
             if let Some(pos) = buf[search_start..].windows(4).position(|w| w == b"\r\n\r\n") {
                 return Ok(Some(search_start + pos + 4));
             }
         }
     };
 
-    header_end = match tokio::time::timeout(handshake_timeout, header_read).await {
+    let header_end = match tokio::time::timeout(handshake_timeout, header_read).await {
         Ok(Ok(Some(end))) => end,
         Ok(Ok(None)) => return Ok(()),
         Ok(Err(e)) => return Err(e),

@@ -40,7 +40,7 @@ impl ProtocolHandler for PostgresHandler {
             loop {
                 // Read message length (4 bytes, big-endian)
                 let msg_len = client.read_u32().await? as usize;
-                if msg_len < 8 || msg_len > 10240 {
+                if !(8..=10240).contains(&msg_len) {
                     warn!(peer = %peer, len = msg_len, "Invalid startup message length");
                     return Err::<_, Error>(Error::Protocol("Invalid startup message length".into()));
                 }
