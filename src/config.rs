@@ -341,6 +341,21 @@ impl Config {
                     .to_string(),
             ));
         }
+        if self.docker.poll_interval == 0 {
+            return Err(Error::Config("docker.poll_interval must be > 0".into()));
+        }
+        if self.discovery.enabled && self.discovery.poll_interval == 0 {
+            return Err(Error::Config("discovery.poll_interval must be > 0".into()));
+        }
+        if self.health_check.enabled && self.health_check.interval == 0 {
+            return Err(Error::Config("health_check.interval must be > 0".into()));
+        }
+        if self.backend.connect_timeout == 0 {
+            return Err(Error::Config("backend.connect_timeout must be > 0".into()));
+        }
+        if self.backend.idle_timeout == 0 {
+            return Err(Error::Config("backend.idle_timeout must be > 0".into()));
+        }
         Ok(())
     }
 }

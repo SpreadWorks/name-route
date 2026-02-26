@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
+use crate::control;
 use crate::domains;
 use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, RoutingTable, SharedRoutingTable};
@@ -130,6 +131,15 @@ pub async fn poll_once(docker: &Docker) -> crate::error::Result<RoutingTable> {
         }
 
         for route in routes {
+            if let Err(e) = control::validate_key(&route.key) {
+                warn!(
+                    container = %container_name,
+                    key = %route.key,
+                    error = %e,
+                    "Invalid routing key in Docker label, skipping"
+                );
+                continue;
+            }
             let port = route.port.unwrap_or_else(|| route.protocol.default_port());
 
             let backend = Backend {

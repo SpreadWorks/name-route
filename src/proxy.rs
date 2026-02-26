@@ -3,11 +3,14 @@ use std::time::Duration;
 
 use tokio::io::{AsyncWriteExt, copy_bidirectional};
 use tokio::net::TcpStream;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::config::BackendConfig;
 use crate::error::{Error, Result};
 use crate::router::Backend;
+
+/// Maximum relay duration (30 minutes). Prevents indefinite connection hold.
+const MAX_RELAY_DURATION: Duration = Duration::from_secs(1800);
 
 /// Connect to a backend, trying each address in order with retries.
 pub async fn connect_backend(backend: &Backend, config: &BackendConfig) -> Result<TcpStream> {
@@ -25,7 +28,7 @@ pub async fn connect_backend(backend: &Backend, config: &BackendConfig) -> Resul
 
             match tokio::time::timeout(timeout, TcpStream::connect(sock_addr)).await {
                 Ok(Ok(stream)) => {
-                    info!(
+                    debug!(
                         addr = %sock_addr,
                         container = %backend.container_name,
                         "Connected to backend"
@@ -72,8 +75,13 @@ pub async fn relay(
         }
     }
 
-    match copy_bidirectional(&mut client, &mut backend).await {
-        Ok((client_to_backend, backend_to_client)) => {
+    match tokio::time::timeout(
+        MAX_RELAY_DURATION,
+        copy_bidirectional(&mut client, &mut backend),
+    )
+    .await
+    {
+        Ok(Ok((client_to_backend, backend_to_client))) => {
             debug!(
                 peer = %peer,
                 client_to_backend,
@@ -82,8 +90,12 @@ pub async fn relay(
             );
             Ok(())
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             debug!(peer = %peer, error = %e, "Relay ended");
+            Ok(())
+        }
+        Err(_) => {
+            debug!(peer = %peer, "Relay timed out after {}s", MAX_RELAY_DURATION.as_secs());
             Ok(())
         }
     }

@@ -3,14 +3,16 @@ name = "name-route"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "Local TCP L7 router for dev environments — route by name, not port number"
+repository = "https://github.com/SpreadWorks/name-route"
+homepage = "https://github.com/SpreadWorks/name-route"
+keywords = ["router", "proxy", "development", "docker", "localhost"]
+categories = ["development-tools", "network-programming"]
+readme = "README.md"
 
 [[bin]]
 name = "nameroute"
 path = "src/main.rs"
-
-[[bin]]
-name = "echo-http-server"
-path = "tests/helpers/echo_http_server.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

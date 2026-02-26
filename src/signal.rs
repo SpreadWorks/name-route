@@ -72,13 +72,17 @@ pub async fn signal_handler(
 
 /// Drop privileges to the specified user/group.
 pub fn drop_privileges(user: Option<&str>, group: Option<&str>) -> crate::error::Result<()> {
-    use nix::unistd::{setgid, setuid};
+    use nix::unistd::{setgid, setgroups, setuid};
 
     if let Some(group_name) = group {
         let gid = nix::unistd::Group::from_name(group_name)
             .map_err(|e| crate::error::Error::Config(format!("Failed to lookup group '{}': {}", group_name, e)))?
             .ok_or_else(|| crate::error::Error::Config(format!("Group '{}' not found", group_name)))?
             .gid;
+        // Clear supplementary groups before changing primary group
+        setgroups(&[gid]).map_err(|e| {
+            crate::error::Error::Config(format!("Failed to setgroups for '{}': {}", group_name, e))
+        })?;
         setgid(gid).map_err(|e| {
             crate::error::Error::Config(format!("Failed to setgid to '{}': {}", group_name, e))
         })?;

@@ -86,7 +86,7 @@ impl Response {
 /// Validate a routing key. Only allows hostname-safe characters:
 /// alphanumeric, hyphens, and dots. Must start and end with alphanumeric.
 /// Max length 253 (DNS label limit).
-fn validate_key(key: &str) -> Result<(), String> {
+pub fn validate_key(key: &str) -> Result<(), String> {
     if key.is_empty() {
         return Err("routing key must not be empty".into());
     }

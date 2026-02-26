@@ -15,7 +15,7 @@ pub async fn polling_loop(
     config_rx: watch::Receiver<Config>,
     cancel: CancellationToken,
 ) {
-    let config_rx = config_rx;
+    let mut config_rx = config_rx;
     let mut interval_secs = config_rx.borrow().health_check.interval;
     let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 
@@ -29,12 +29,6 @@ pub async fn polling_loop(
                 let config = config_rx.borrow().clone();
                 if !config.health_check.enabled {
                     continue;
-                }
-
-                // Update interval if config changed
-                if config.health_check.interval != interval_secs {
-                    interval_secs = config.health_check.interval;
-                    interval = tokio::time::interval(Duration::from_secs(interval_secs));
                 }
 
                 let timeout = Duration::from_secs(config.health_check.timeout);
@@ -84,6 +78,14 @@ pub async fn polling_loop(
 
                 // Replace the entire map (stale entries for removed routes are cleaned up)
                 *health_map.write().await = new_map;
+            }
+            _ = config_rx.changed() => {
+                let new_interval = config_rx.borrow().health_check.interval;
+                if new_interval != interval_secs {
+                    info!(old = interval_secs, new = new_interval, "Health check interval changed");
+                    interval_secs = new_interval;
+                    interval = tokio::time::interval(Duration::from_secs(interval_secs));
+                }
             }
         }
     }

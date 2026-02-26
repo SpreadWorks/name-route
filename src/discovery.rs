@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
+use crate::control;
 use crate::domains;
 use crate::protocol::{ProtocolKind, TlsMode};
 use crate::router::{Backend, RoutingTable, SharedRoutingTable};
@@ -131,6 +132,11 @@ fn parse_project_config(
         let key = route
             .key
             .unwrap_or_else(|| dir_name.to_string());
+
+        if let Err(e) = control::validate_key(&key) {
+            warn!(key = %key, error = %e, "Invalid routing key in .nameroute.toml, skipping");
+            continue;
+        }
 
         let (host, port_str) = match route.backend.rsplit_once(':') {
             Some((h, p)) => (h, p),

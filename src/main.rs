@@ -38,13 +38,14 @@ const BANNER: &str = r#"
 "#;
 
 #[derive(Parser)]
-#[command(name = "nameroute", version, about = "Local TCP L7 Router")]
+#[command(name = "nameroute", version, about = "Local TCP L7 Router",
+    after_help = "Examples:\n  nameroute                              Start the daemon\n  nameroute run http myapp -- next dev   Register route and run dev server\n  nameroute add http myapp 127.0.0.1:3000\n  nameroute list")]
 struct Cli {
     /// Path to configuration file
     #[arg(short, long, global = true)]
     config: Option<PathBuf>,
 
-    /// Management port for CLI <-> daemon communication
+    /// Management port for CLI <-> daemon communication [env: NAMEROUTE_PORT]
     #[arg(short = 'm', long = "management-port", global = true)]
     management_port: Option<u16>,
 
@@ -61,7 +62,7 @@ enum Commands {
     /// Add a route dynamically
     Add {
         /// Protocol (http, https, postgres, mysql, smtp)
-        protocol: String,
+        protocol: ProtocolKind,
         /// Routing key
         key: String,
         /// Backend address (host:port)
@@ -73,14 +74,12 @@ enum Commands {
     /// Remove a route
     Remove {
         /// Protocol (http, https, postgres, mysql, smtp)
-        protocol: String,
+        protocol: ProtocolKind,
         /// Routing key
         key: String,
     },
     /// Show daemon status
     Status,
-    /// Reload configuration
-    Reload,
     /// Run a command with automatic port allocation and route registration
     Run {
         /// Protocol (http, https, postgres, mysql, smtp)
@@ -150,9 +149,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tls_mode,
         }) => {
             let mgmt_port = resolve_management_port(cli.management_port);
-            let protocol: ProtocolKind = protocol
-                .parse()
-                .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
             let resp = control::send_request(mgmt_port, &control::Request::AddRoute {
                 protocol,
                 key: key.clone(),
@@ -174,9 +170,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Remove { protocol, key }) => {
             let mgmt_port = resolve_management_port(cli.management_port);
-            let protocol: ProtocolKind = protocol
-                .parse()
-                .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
             let resp = control::send_request(mgmt_port, &control::Request::RemoveRoute {
                 protocol,
                 key: key.clone(),
@@ -211,10 +204,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Ok(())
-        }
-        Some(Commands::Reload) => {
-            eprintln!("Not yet implemented: requires control socket reload command");
-            std::process::exit(1);
         }
         Some(Commands::Run {
             protocol,
@@ -274,6 +263,15 @@ async fn run_server(
     {
         let mut table = routing_table.write().await;
         for route in &config.routes {
+            if let Err(e) = control::validate_key(&route.key) {
+                warn!(
+                    protocol = %route.protocol,
+                    key = %route.key,
+                    error = %e,
+                    "Invalid routing key in static route, skipping"
+                );
+                continue;
+            }
             let (host, port_str) = match route.backend.rsplit_once(':') {
                 Some((h, p)) => (h, p),
                 None => {

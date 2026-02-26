@@ -66,7 +66,7 @@ done
 
 # ---- 4. Start echo-http-server for static route testing ----
 ECHO_HTTP_PORT=19876
-ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/echo-http-server"
+ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/examples/echo-http-server"
 echo "=== Starting echo-http-server on port $ECHO_HTTP_PORT ==="
 "$ECHO_HTTP_BIN" --port "$ECHO_HTTP_PORT" --body "static-route-ok" &
 ECHO_HTTP_PID=$!

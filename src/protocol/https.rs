@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::io::{AsyncWriteExt, copy_bidirectional};
 use tokio::net::TcpStream;
@@ -9,6 +10,22 @@ use tracing::{debug, info, warn};
 use crate::config::{Config, TlsConfig};
 use crate::error::Result;
 use crate::protocol::http::{self, extract_subdomain, send_html_response};
+
+/// HTML-escape a string to prevent XSS when interpolating into HTML.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
 use crate::protocol::{ProtocolHandler, ProtocolKind, TlsMode};
 use crate::proxy;
 use crate::router::SharedRoutingTable;
@@ -44,12 +61,24 @@ impl ProtocolHandler for HttpsHandler {
     async fn handle_connection(&self, mut client: TcpStream, peer: SocketAddr) -> Result<()> {
         debug!(peer = %peer, "New HTTPS connection");
 
-        // 1. Read ClientHello and extract SNI
-        let (server_name, buffer) = tls::read_sni(&mut client).await?;
+        // 1. Read ClientHello and extract SNI (with timeout)
+        let config = self.config_rx.borrow().clone();
+        let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
+        let (server_name, buffer) = match tokio::time::timeout(
+            handshake_timeout,
+            tls::read_sni(&mut client),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => {
+                warn!(peer = %peer, "HTTPS SNI read timed out");
+                return Ok(());
+            }
+        };
         debug!(peer = %peer, sni = %server_name, "SNI extracted");
 
         // 2. Extract subdomain from SNI
-        let config = self.config_rx.borrow().clone();
         let base_domain = &config.http.base_domain;
         let key = extract_subdomain(&server_name, base_domain);
 
@@ -89,8 +118,14 @@ impl ProtocolHandler for HttpsHandler {
                     proxy::connect_backend(&backend, &config.backend).await?;
                 backend_stream.write_all(&buffer).await?;
 
-                match copy_bidirectional(&mut client, &mut backend_stream).await {
-                    Ok((c2b, b2c)) => {
+                let relay_timeout = Duration::from_secs(1800);
+                match tokio::time::timeout(
+                    relay_timeout,
+                    copy_bidirectional(&mut client, &mut backend_stream),
+                )
+                .await
+                {
+                    Ok(Ok((c2b, b2c))) => {
                         debug!(
                             peer = %peer,
                             client_to_backend = c2b,
@@ -98,8 +133,11 @@ impl ProtocolHandler for HttpsHandler {
                             "HTTPS passthrough connection closed"
                         );
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         debug!(peer = %peer, error = %e, "HTTPS passthrough relay ended");
+                    }
+                    Err(_) => {
+                        debug!(peer = %peer, "HTTPS passthrough relay timed out");
                     }
                 }
             }
@@ -132,23 +170,24 @@ impl ProtocolHandler for HttpsHandler {
                     // Only show detailed diagnostic info (file paths, commands)
                     // to connections from loopback addresses.
                     let is_local = peer.ip().is_loopback();
+                    let escaped_sni = html_escape(&server_name);
 
                     let body = if is_local {
-                        let cert_path = self
+                        let cert_path = html_escape(self
                             .tls_config
                             .cert
                             .as_deref()
-                            .unwrap_or("/etc/nameroute/cert.pem");
-                        let key_path = self
+                            .unwrap_or("/etc/nameroute/cert.pem"));
+                        let key_path = html_escape(self
                             .tls_config
                             .key
                             .as_deref()
-                            .unwrap_or("/etc/nameroute/key.pem");
+                            .unwrap_or("/etc/nameroute/key.pem"));
 
                         let san_list_html: String = self
                             .san_names
                             .iter()
-                            .map(|s| format!("  <li><code>{}</code></li>\n", s))
+                            .map(|s| format!("  <li><code>{}</code></li>\n", html_escape(s)))
                             .collect();
 
                         format!(
@@ -183,7 +222,7 @@ that matches <code>{sni}</code>.</p>
 sudo systemctl restart nameroute</pre>
 </body>
 </html>"#,
-                            sni = server_name,
+                            sni = escaped_sni,
                             san_list_html = san_list_html,
                             key_path = key_path,
                             cert_path = cert_path,
@@ -208,7 +247,7 @@ sudo systemctl restart nameroute</pre>
 that matches <code>{sni}</code>. Please contact the server administrator.</p>
 </body>
 </html>"#,
-                            sni = server_name,
+                            sni = escaped_sni,
                         )
                     };
 

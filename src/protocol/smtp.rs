@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use chrono::Utc;
 use tokio::io::{AsyncWriteExt, BufReader};
@@ -16,6 +17,10 @@ use crate::protocol::ProtocolHandler;
 const MAX_COMMAND_LINE: usize = 1024;
 /// Maximum line length during DATA phase (generous: 100 KB per line).
 const MAX_DATA_LINE: usize = 102_400;
+/// Maximum SMTP session duration (10 minutes).
+const SESSION_TIMEOUT: Duration = Duration::from_secs(600);
+/// Maximum number of recipients per message (RFC 5321 recommends at least 100).
+const MAX_RECIPIENTS: usize = 100;
 
 #[derive(Debug, PartialEq)]
 enum SmtpState {
@@ -47,7 +52,6 @@ impl ProtocolHandler for SmtpHandler {
         let (reader, mut writer) = client.into_split();
         let mut reader = BufReader::new(reader);
         let mut state = SmtpState::Ehlo;
-        let mut mail_from;
         let mut rcpt_domains: Vec<String> = Vec::new();
         let mut line_buf = String::new();
 
@@ -56,6 +60,7 @@ impl ProtocolHandler for SmtpHandler {
             .write_all(b"220 name-route SMTP Ready\r\n")
             .await?;
 
+        let session = async {
         loop {
             line_buf.clear();
             let bytes_read = read_limited_line(&mut reader, &mut line_buf, MAX_COMMAND_LINE).await?;
@@ -87,9 +92,9 @@ impl ProtocolHandler for SmtpHandler {
                 }
                 SmtpState::MailFrom => {
                     if upper.starts_with("MAIL FROM:") {
-                        mail_from = line.get(10..).unwrap_or("").trim().to_string();
+                        let from = line.get(10..).unwrap_or("").trim();
                         rcpt_domains.clear();
-                        debug!(peer = %peer, from = %mail_from, "MAIL FROM");
+                        debug!(peer = %peer, from = %from, "MAIL FROM");
                         writer.write_all(b"250 OK\r\n").await?;
                         state = SmtpState::RcptTo;
                     } else if upper.starts_with("STARTTLS") {
@@ -112,12 +117,15 @@ impl ProtocolHandler for SmtpHandler {
                 }
                 SmtpState::RcptTo => {
                     if upper.starts_with("RCPT TO:") {
-                        // Extract domain from RCPT TO
-                        let domain = extract_domain(line);
-                        if !rcpt_domains.contains(&domain) {
-                            rcpt_domains.push(domain);
+                        if rcpt_domains.len() >= MAX_RECIPIENTS {
+                            writer.write_all(b"452 Too many recipients\r\n").await?;
+                        } else {
+                            let domain = extract_domain(line);
+                            if !rcpt_domains.contains(&domain) {
+                                rcpt_domains.push(domain);
+                            }
+                            writer.write_all(b"250 OK\r\n").await?;
                         }
-                        writer.write_all(b"250 OK\r\n").await?;
                         state = SmtpState::Data;
                     } else if upper.starts_with("QUIT") {
                         writer.write_all(b"221 Bye\r\n").await?;
@@ -133,12 +141,15 @@ impl ProtocolHandler for SmtpHandler {
                 }
                 SmtpState::Data => {
                     if upper.starts_with("RCPT TO:") {
-                        // Additional recipients
-                        let domain = extract_domain(line);
-                        if !rcpt_domains.contains(&domain) {
-                            rcpt_domains.push(domain);
+                        if rcpt_domains.len() >= MAX_RECIPIENTS {
+                            writer.write_all(b"452 Too many recipients\r\n").await?;
+                        } else {
+                            let domain = extract_domain(line);
+                            if !rcpt_domains.contains(&domain) {
+                                rcpt_domains.push(domain);
+                            }
+                            writer.write_all(b"250 OK\r\n").await?;
                         }
-                        writer.write_all(b"250 OK\r\n").await?;
                     } else if upper == "DATA" {
                         writer
                             .write_all(b"354 Start mail input\r\n")
@@ -203,6 +214,17 @@ impl ProtocolHandler for SmtpHandler {
                         }
                     }
                 }
+            }
+        }
+
+        Ok::<(), Error>(())
+        };
+
+        match tokio::time::timeout(SESSION_TIMEOUT, session).await {
+            Ok(result) => result?,
+            Err(_) => {
+                warn!(peer = %peer, "SMTP session timed out");
+                let _ = writer.write_all(b"421 Session timeout\r\n").await;
             }
         }
 

@@ -264,7 +264,7 @@ See [HTTPS](docs/https.md) for full setup instructions.
 | `nameroute remove` | Remove a route dynamically |
 | `nameroute list` | List current routes |
 | `nameroute status` | Show daemon status |
-| `nameroute reload` | Reload configuration |
+| `kill -HUP <pid>` | Reload configuration (SIGHUP) |
 
 ```bash
 # Add and remove routes
