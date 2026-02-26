@@ -66,7 +66,7 @@ done
 
 # ---- 4. Start echo-http-server for static route testing ----
 ECHO_HTTP_PORT=19876
-ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/examples/echo-http-server"
+ECHO_HTTP_BIN="$PROJECT_DIR/target/debug/examples/echo_http_server"
 echo "=== Starting echo-http-server on port $ECHO_HTTP_PORT ==="
 "$ECHO_HTTP_BIN" --port "$ECHO_HTTP_PORT" --body "static-route-ok" &
 ECHO_HTTP_PID=$!
@@ -83,6 +83,19 @@ MYSQL_PORT=13306
 SMTP_PORT=10025
 HTTP_PORT=18080
 POLL_INTERVAL=2
+
+# Check for port conflicts before starting
+PORT_CONFLICT=false
+for CHECK_PORT in $PG_PORT $MYSQL_PORT $SMTP_PORT $HTTP_PORT $ECHO_HTTP_PORT; do
+    if ss -tlnH "sport = :$CHECK_PORT" 2>/dev/null | grep -q .; then
+        echo "ERROR: Port $CHECK_PORT is already in use"
+        PORT_CONFLICT=true
+    fi
+done
+if [ "$PORT_CONFLICT" = true ]; then
+    echo "Aborting: required ports are occupied. Stop conflicting processes or run in an isolated environment."
+    exit 1
+fi
 
 MAILBOX_DIR=$(mktemp -d /tmp/nameroute-e2e-mailbox-XXXXXX)
 TMPCONFIG=$(mktemp /tmp/nameroute-e2e-XXXXXX.toml)
@@ -419,7 +432,7 @@ fi
 # Test 2: Verify email file was saved
 echo "-- SMTP: Verify email file saved --"
 sleep 0.5
-EML_COUNT=$(find "$MAILBOX_DIR/example.com" -name "*.eml" 2>/dev/null | wc -l)
+EML_COUNT=$(find "$MAILBOX_DIR/example.com" -name "*.eml" 2>/dev/null | wc -l || echo 0)
 if [ "$EML_COUNT" -ge 1 ]; then
     pass "SMTP mailbox: $EML_COUNT .eml file(s) in example.com/"
 else
@@ -438,7 +451,7 @@ fi
 # Test 4: Verify second domain directory
 echo "-- SMTP: Verify other.org mailbox --"
 sleep 0.5
-EML_COUNT2=$(find "$MAILBOX_DIR/other.org" -name "*.eml" 2>/dev/null | wc -l)
+EML_COUNT2=$(find "$MAILBOX_DIR/other.org" -name "*.eml" 2>/dev/null | wc -l || echo 0)
 if [ "$EML_COUNT2" -ge 1 ]; then
     pass "SMTP mailbox: $EML_COUNT2 .eml file(s) in other.org/"
 else

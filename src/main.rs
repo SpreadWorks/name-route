@@ -37,8 +37,12 @@ const BANNER: &str = r#"
 "#;
 
 #[derive(Parser)]
-#[command(name = "nameroute", version, about = "Local TCP L7 Router",
-    after_help = "Examples:\n  nameroute                              Start the daemon\n  nameroute run http myapp -- next dev   Register route and run dev server\n  nameroute add http myapp 127.0.0.1:3000\n  nameroute list")]
+#[command(
+    name = "nameroute",
+    version,
+    about = "Local TCP L7 Router",
+    after_help = "Examples:\n  nameroute                              Start the daemon\n  nameroute run http myapp -- next dev   Register route and run dev server\n  nameroute add http myapp 127.0.0.1:3000\n  nameroute list"
+)]
 struct Cli {
     /// Path to configuration file
     #[arg(short, long, global = true)]
@@ -148,12 +152,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tls_mode,
         }) => {
             let mgmt_port = resolve_management_port(cli.management_port);
-            let resp = control::send_request(mgmt_port, &control::Request::AddRoute {
-                protocol,
-                key: key.clone(),
-                backend: backend.clone(),
-                tls_mode,
-            })
+            let resp = control::send_request(
+                mgmt_port,
+                &control::Request::AddRoute {
+                    protocol,
+                    key: key.clone(),
+                    backend: backend.clone(),
+                    tls_mode,
+                },
+            )
             .await
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             if resp.ok {
@@ -169,10 +176,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Remove { protocol, key }) => {
             let mgmt_port = resolve_management_port(cli.management_port);
-            let resp = control::send_request(mgmt_port, &control::Request::RemoveRoute {
-                protocol,
-                key: key.clone(),
-            })
+            let resp = control::send_request(
+                mgmt_port,
+                &control::Request::RemoveRoute {
+                    protocol,
+                    key: key.clone(),
+                },
+            )
             .await
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             if resp.ok {
@@ -194,7 +204,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let count = resp.routes.map(|r| r.len()).unwrap_or(0);
                         println!("Daemon is running. {} route(s) registered.", count);
                     } else {
-                        println!("Daemon responded with error: {}", resp.error.unwrap_or_default());
+                        println!(
+                            "Daemon responded with error: {}",
+                            resp.error.unwrap_or_default()
+                        );
                     }
                 }
                 Err(e) => {
@@ -213,7 +226,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             command,
         }) => {
             let mgmt_port = resolve_management_port(cli.management_port);
-            run::cmd_run(protocol, key, detect_port, port_env, tls_mode, command, mgmt_port).await
+            run::cmd_run(
+                protocol,
+                key,
+                detect_port,
+                port_env,
+                tls_mode,
+                command,
+                mgmt_port,
+            )
+            .await
         }
     }
 }
@@ -329,7 +351,10 @@ async fn run_server(
         {
             let mut table = routing_table.write().await;
             for ((protocol, key), backend) in discovery_table.entries() {
-                if table.lookup(*protocol, key).is_some_and(|b| b.source == "static") {
+                if table
+                    .lookup(*protocol, key)
+                    .is_some_and(|b| b.source == "static")
+                {
                     continue;
                 }
                 table.insert(*protocol, key.clone(), backend.clone());
@@ -371,9 +396,7 @@ async fn run_server(
                         // Merge Docker routes, preserving static and discovery routes
                         for ((protocol, key), backend) in docker_table.entries() {
                             if let Some(existing) = table.lookup(*protocol, key) {
-                                if existing.source == "static"
-                                    || existing.source == "discovery"
-                                {
+                                if existing.source == "static" || existing.source == "discovery" {
                                     continue;
                                 }
                             }
@@ -470,7 +493,8 @@ async fn run_server(
                 ctrl_table,
                 ctrl_health_map,
                 ctrl_cancel,
-            ).await;
+            )
+            .await;
         });
     }
 
@@ -637,7 +661,5 @@ fn init_tracing(config: &Config) {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(&config.general.log_level));
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 }

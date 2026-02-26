@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, copy_bidirectional};
+use tokio::io::{
+    copy_bidirectional, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader,
+};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
@@ -31,8 +33,15 @@ impl HttpHandler {
 
 impl ProtocolHandler for HttpHandler {
     async fn handle_connection(&self, client: TcpStream, peer: SocketAddr) -> Result<()> {
-        handle_http_stream(client, peer, &self.routing_table, &self.config_rx, ProtocolKind::Http, None)
-            .await
+        handle_http_stream(
+            client,
+            peer,
+            &self.routing_table,
+            &self.config_rx,
+            ProtocolKind::Http,
+            None,
+        )
+        .await
     }
 }
 
@@ -76,13 +85,22 @@ where
             buf_reader.consume(consumed);
 
             if buf.len() > MAX_HEADER_SIZE {
-                send_response(buf_reader.get_mut(), 431, "Request Header Fields Too Large", "Headers too large").await?;
+                send_response(
+                    buf_reader.get_mut(),
+                    431,
+                    "Request Header Fields Too Large",
+                    "Headers too large",
+                )
+                .await?;
                 return Ok(None);
             }
 
             // Search for \r\n\r\n starting from where it could first appear
             let search_start = prev_len.saturating_sub(3);
-            if let Some(pos) = buf[search_start..].windows(4).position(|w| w == b"\r\n\r\n") {
+            if let Some(pos) = buf[search_start..]
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+            {
                 return Ok(Some(search_start + pos + 4));
             }
         }
@@ -111,7 +129,13 @@ where
     let host = match &host_value {
         Some(h) => h.as_str(),
         None => {
-            send_response(buf_reader.get_mut(), 400, "Bad Request", "Missing Host header").await?;
+            send_response(
+                buf_reader.get_mut(),
+                400,
+                "Bad Request",
+                "Missing Host header",
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -123,7 +147,13 @@ where
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            send_response(buf_reader.get_mut(), 404, "Not Found", "No subdomain specified").await?;
+            send_response(
+                buf_reader.get_mut(),
+                404,
+                "Not Found",
+                "No subdomain specified",
+            )
+            .await?;
             return Ok(());
         }
     };

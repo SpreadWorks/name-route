@@ -120,17 +120,14 @@ fn parse_project_config(
     path: &Path,
     dir_name: &str,
 ) -> Result<Vec<(ProtocolKind, String, Backend)>, String> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("read error: {}", e))?;
+    let content = std::fs::read_to_string(path).map_err(|e| format!("read error: {}", e))?;
     let project: ProjectConfig =
         toml::from_str(&content).map_err(|e| format!("parse error: {}", e))?;
 
     let mut result = Vec::new();
 
     for route in project.routes {
-        let key = route
-            .key
-            .unwrap_or_else(|| dir_name.to_string());
+        let key = route.key.unwrap_or_else(|| dir_name.to_string());
 
         if let Err(e) = control::validate_key(&key) {
             warn!(key = %key, error = %e, "Invalid routing key in .nameroute.toml, skipping");

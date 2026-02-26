@@ -95,7 +95,9 @@ pub fn validate_key(key: &str) -> Result<(), String> {
     }
     // Must match: starts with alnum, optional middle of alnum/hyphen/dot, ends with alnum
     // Single character keys (just alnum) are also valid.
-    let valid = key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+    let valid = key
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
         && key.as_bytes()[0].is_ascii_alphanumeric()
         && key.as_bytes()[key.len() - 1].is_ascii_alphanumeric()
         && !key.contains("..");
@@ -129,7 +131,10 @@ pub async fn run_control_server(
         Ok(l) => l,
         Err(e) => {
             if e.kind() == std::io::ErrorKind::AddrInUse {
-                error!(port = port, "Management port already in use — is another daemon running?");
+                error!(
+                    port = port,
+                    "Management port already in use — is another daemon running?"
+                );
             } else {
                 error!(error = %e, port = port, "Failed to bind management port");
             }
@@ -191,7 +196,18 @@ async fn handle_connection(
         }
         let line = line.trim_end();
         let response = match serde_json::from_str::<Request>(line) {
-            Ok(req) => handle_request(req, &table, &health_map, base_domain, tls_cert, tls_key, listener_ports).await,
+            Ok(req) => {
+                handle_request(
+                    req,
+                    &table,
+                    &health_map,
+                    base_domain,
+                    tls_cert,
+                    tls_key,
+                    listener_ports,
+                )
+                .await
+            }
             Err(e) => Response::error(format!("invalid request: {}", e)),
         };
 
@@ -254,7 +270,12 @@ async fn handle_request(
 
             let url = build_url(protocol, &key, base_domain, listener_ports);
             info!(protocol = %protocol, key = %key, backend = %backend, "Route added via control socket");
-            Response { ok: true, error: None, routes: None, url }
+            Response {
+                ok: true,
+                error: None,
+                routes: None,
+                url,
+            }
         }
         Request::RemoveRoute { protocol, key } => {
             if let Err(e) = validate_key(&key) {
@@ -353,18 +374,17 @@ pub fn parse_backend(s: &str) -> Result<(IpAddr, u16), String> {
     Ok((addr, port))
 }
 
-
 // --- Client ---
 
 pub async fn send_request(port: u16, req: &Request) -> Result<Response, String> {
     let addr = format!("127.0.0.1:{}", port);
 
-    let stream = TcpStream::connect(&addr)
-        .await
-        .map_err(|_| format!(
+    let stream = TcpStream::connect(&addr).await.map_err(|_| {
+        format!(
             "daemon is not running (failed to connect to {}). Start with: nameroute serve",
             addr
-        ))?;
+        )
+    })?;
 
     let (reader, mut writer) = stream.into_split();
 

@@ -56,168 +56,151 @@ impl ProtocolHandler for SmtpHandler {
         let mut line_buf = String::new();
 
         // Send greeting
-        writer
-            .write_all(b"220 name-route SMTP Ready\r\n")
-            .await?;
+        writer.write_all(b"220 name-route SMTP Ready\r\n").await?;
 
         let session = async {
-        loop {
-            line_buf.clear();
-            let bytes_read = crate::proxy::read_limited_line(&mut reader, &mut line_buf, MAX_COMMAND_LINE).await?;
-            if bytes_read == 0 {
-                debug!(peer = %peer, "Client disconnected");
-                break;
-            }
-
-            let line = line_buf.trim_end();
-            let upper = line.to_uppercase();
-
-            match state {
-                SmtpState::Ehlo => {
-                    if upper.starts_with("EHLO") || upper.starts_with("HELO") {
-                        let response = format!(
-                            "250-name-route\r\n250-SIZE {}\r\n250 OK\r\n",
-                            max_size
-                        );
-                        writer.write_all(response.as_bytes()).await?;
-                        state = SmtpState::MailFrom;
-                    } else if upper.starts_with("QUIT") {
-                        writer.write_all(b"221 Bye\r\n").await?;
-                        break;
-                    } else {
-                        writer
-                            .write_all(b"503 Expected EHLO/HELO\r\n")
-                            .await?;
-                    }
+            loop {
+                line_buf.clear();
+                let bytes_read =
+                    crate::proxy::read_limited_line(&mut reader, &mut line_buf, MAX_COMMAND_LINE)
+                        .await?;
+                if bytes_read == 0 {
+                    debug!(peer = %peer, "Client disconnected");
+                    break;
                 }
-                SmtpState::MailFrom => {
-                    if upper.starts_with("MAIL FROM:") {
-                        let from = line.get(10..).unwrap_or("").trim();
-                        rcpt_domains.clear();
-                        debug!(peer = %peer, from = %from, "MAIL FROM");
-                        writer.write_all(b"250 OK\r\n").await?;
-                        state = SmtpState::RcptTo;
-                    } else if upper.starts_with("STARTTLS") {
-                        warn!(peer = %peer, "STARTTLS requested but not supported");
-                        writer
-                            .write_all(b"502 Not supported\r\n")
-                            .await?;
-                        break;
-                    } else if upper.starts_with("QUIT") {
-                        writer.write_all(b"221 Bye\r\n").await?;
-                        break;
-                    } else if upper.starts_with("RSET") {
-                        writer.write_all(b"250 OK\r\n").await?;
-                        // Stay in MailFrom state
-                    } else {
-                        writer
-                            .write_all(b"503 Expected MAIL FROM\r\n")
-                            .await?;
-                    }
-                }
-                SmtpState::RcptTo => {
-                    if upper.starts_with("RCPT TO:") {
-                        if rcpt_domains.len() >= MAX_RECIPIENTS {
-                            writer.write_all(b"452 Too many recipients\r\n").await?;
+
+                let line = line_buf.trim_end();
+                let upper = line.to_uppercase();
+
+                match state {
+                    SmtpState::Ehlo => {
+                        if upper.starts_with("EHLO") || upper.starts_with("HELO") {
+                            let response =
+                                format!("250-name-route\r\n250-SIZE {}\r\n250 OK\r\n", max_size);
+                            writer.write_all(response.as_bytes()).await?;
+                            state = SmtpState::MailFrom;
+                        } else if upper.starts_with("QUIT") {
+                            writer.write_all(b"221 Bye\r\n").await?;
+                            break;
                         } else {
-                            let domain = extract_domain(line);
-                            if !rcpt_domains.contains(&domain) {
-                                rcpt_domains.push(domain);
-                            }
-                            writer.write_all(b"250 OK\r\n").await?;
+                            writer.write_all(b"503 Expected EHLO/HELO\r\n").await?;
                         }
-                        state = SmtpState::Data;
-                    } else if upper.starts_with("QUIT") {
-                        writer.write_all(b"221 Bye\r\n").await?;
-                        break;
-                    } else if upper.starts_with("RSET") {
-                        writer.write_all(b"250 OK\r\n").await?;
-                        state = SmtpState::MailFrom;
-                    } else {
-                        writer
-                            .write_all(b"503 Expected RCPT TO\r\n")
-                            .await?;
                     }
-                }
-                SmtpState::Data => {
-                    if upper.starts_with("RCPT TO:") {
-                        if rcpt_domains.len() >= MAX_RECIPIENTS {
-                            writer.write_all(b"452 Too many recipients\r\n").await?;
+                    SmtpState::MailFrom => {
+                        if upper.starts_with("MAIL FROM:") {
+                            let from = line.get(10..).unwrap_or("").trim();
+                            rcpt_domains.clear();
+                            debug!(peer = %peer, from = %from, "MAIL FROM");
+                            writer.write_all(b"250 OK\r\n").await?;
+                            state = SmtpState::RcptTo;
+                        } else if upper.starts_with("STARTTLS") {
+                            warn!(peer = %peer, "STARTTLS requested but not supported");
+                            writer.write_all(b"502 Not supported\r\n").await?;
+                            break;
+                        } else if upper.starts_with("QUIT") {
+                            writer.write_all(b"221 Bye\r\n").await?;
+                            break;
+                        } else if upper.starts_with("RSET") {
+                            writer.write_all(b"250 OK\r\n").await?;
+                            // Stay in MailFrom state
                         } else {
-                            let domain = extract_domain(line);
-                            if !rcpt_domains.contains(&domain) {
-                                rcpt_domains.push(domain);
-                            }
-                            writer.write_all(b"250 OK\r\n").await?;
+                            writer.write_all(b"503 Expected MAIL FROM\r\n").await?;
                         }
-                    } else if upper == "DATA" {
-                        writer
-                            .write_all(b"354 Start mail input\r\n")
-                            .await?;
-                        state = SmtpState::Receiving;
-                    } else if upper.starts_with("QUIT") {
-                        writer.write_all(b"221 Bye\r\n").await?;
-                        break;
-                    } else if upper.starts_with("RSET") {
-                        writer.write_all(b"250 OK\r\n").await?;
-                        state = SmtpState::MailFrom;
-                    } else {
-                        writer.write_all(b"503 Expected DATA\r\n").await?;
                     }
-                }
-                SmtpState::Receiving => {
-                    // Receive data until \r\n.\r\n
-                    // Determine target domain directories
-                    let domains: Vec<String> = if rcpt_domains.is_empty() {
-                        vec!["unknown".to_string()]
-                    } else {
-                        rcpt_domains.clone()
-                    };
-
-                    // Save to the first domain, then hardlink to others
-                    let primary_dir = mailbox_dir.join(&domains[0]);
-
-                    match receive_data(
-                        &mut reader,
-                        &mut writer,
-                        &primary_dir,
-                        max_size,
-                        peer,
-                    )
-                    .await
-                    {
-                        Ok(Some(saved_path)) => {
-                            // Hardlink or copy to additional domain directories
-                            for domain in &domains[1..] {
-                                let extra_dir = mailbox_dir.join(domain);
-                                if let Err(e) = tokio::fs::create_dir_all(&extra_dir).await {
-                                    warn!(domain = %domain, error = %e, "Failed to create mailbox dir");
-                                    continue;
+                    SmtpState::RcptTo => {
+                        if upper.starts_with("RCPT TO:") {
+                            if rcpt_domains.len() >= MAX_RECIPIENTS {
+                                writer.write_all(b"452 Too many recipients\r\n").await?;
+                            } else {
+                                let domain = extract_domain(line);
+                                if !rcpt_domains.contains(&domain) {
+                                    rcpt_domains.push(domain);
                                 }
-                                let dest = extra_dir.join(saved_path.file_name().unwrap_or_default());
-                                if tokio::fs::hard_link(&saved_path, &dest).await.is_err() {
-                                    // Fallback to copy if hardlink fails (cross-device)
-                                    if let Err(e) = tokio::fs::copy(&saved_path, &dest).await {
-                                        warn!(domain = %domain, error = %e, "Failed to copy email to additional domain");
+                                writer.write_all(b"250 OK\r\n").await?;
+                            }
+                            state = SmtpState::Data;
+                        } else if upper.starts_with("QUIT") {
+                            writer.write_all(b"221 Bye\r\n").await?;
+                            break;
+                        } else if upper.starts_with("RSET") {
+                            writer.write_all(b"250 OK\r\n").await?;
+                            state = SmtpState::MailFrom;
+                        } else {
+                            writer.write_all(b"503 Expected RCPT TO\r\n").await?;
+                        }
+                    }
+                    SmtpState::Data => {
+                        if upper.starts_with("RCPT TO:") {
+                            if rcpt_domains.len() >= MAX_RECIPIENTS {
+                                writer.write_all(b"452 Too many recipients\r\n").await?;
+                            } else {
+                                let domain = extract_domain(line);
+                                if !rcpt_domains.contains(&domain) {
+                                    rcpt_domains.push(domain);
+                                }
+                                writer.write_all(b"250 OK\r\n").await?;
+                            }
+                        } else if upper == "DATA" {
+                            writer.write_all(b"354 Start mail input\r\n").await?;
+                            state = SmtpState::Receiving;
+                        } else if upper.starts_with("QUIT") {
+                            writer.write_all(b"221 Bye\r\n").await?;
+                            break;
+                        } else if upper.starts_with("RSET") {
+                            writer.write_all(b"250 OK\r\n").await?;
+                            state = SmtpState::MailFrom;
+                        } else {
+                            writer.write_all(b"503 Expected DATA\r\n").await?;
+                        }
+                    }
+                    SmtpState::Receiving => {
+                        // Receive data until \r\n.\r\n
+                        // Determine target domain directories
+                        let domains: Vec<String> = if rcpt_domains.is_empty() {
+                            vec!["unknown".to_string()]
+                        } else {
+                            rcpt_domains.clone()
+                        };
+
+                        // Save to the first domain, then hardlink to others
+                        let primary_dir = mailbox_dir.join(&domains[0]);
+
+                        match receive_data(&mut reader, &mut writer, &primary_dir, max_size, peer)
+                            .await
+                        {
+                            Ok(Some(saved_path)) => {
+                                // Hardlink or copy to additional domain directories
+                                for domain in &domains[1..] {
+                                    let extra_dir = mailbox_dir.join(domain);
+                                    if let Err(e) = tokio::fs::create_dir_all(&extra_dir).await {
+                                        warn!(domain = %domain, error = %e, "Failed to create mailbox dir");
+                                        continue;
+                                    }
+                                    let dest =
+                                        extra_dir.join(saved_path.file_name().unwrap_or_default());
+                                    if tokio::fs::hard_link(&saved_path, &dest).await.is_err() {
+                                        // Fallback to copy if hardlink fails (cross-device)
+                                        if let Err(e) = tokio::fs::copy(&saved_path, &dest).await {
+                                            warn!(domain = %domain, error = %e, "Failed to copy email to additional domain");
+                                        }
                                     }
                                 }
+                                state = SmtpState::MailFrom;
                             }
-                            state = SmtpState::MailFrom;
-                        }
-                        Ok(None) => {
-                            // Size exceeded or client disconnected, already handled
-                            state = SmtpState::MailFrom;
-                        }
-                        Err(e) => {
-                            error!(peer = %peer, error = %e, "Error receiving data");
-                            break;
+                            Ok(None) => {
+                                // Size exceeded or client disconnected, already handled
+                                state = SmtpState::MailFrom;
+                            }
+                            Err(e) => {
+                                error!(peer = %peer, error = %e, "Error receiving data");
+                                break;
+                            }
                         }
                     }
                 }
             }
-        }
 
-        Ok::<(), Error>(())
+            Ok::<(), Error>(())
         };
 
         match tokio::time::timeout(SESSION_TIMEOUT, session).await {
@@ -256,7 +239,8 @@ async fn receive_data(
 
     loop {
         line_buf.clear();
-        let bytes_read = crate::proxy::read_limited_line(reader, &mut line_buf, MAX_DATA_LINE).await?;
+        let bytes_read =
+            crate::proxy::read_limited_line(reader, &mut line_buf, MAX_DATA_LINE).await?;
         if bytes_read == 0 {
             // Client disconnected
             break;
@@ -274,7 +258,8 @@ async fn receive_data(
             // Continue reading to consume the rest of the message
             loop {
                 line_buf.clear();
-                let n = crate::proxy::read_limited_line(reader, &mut line_buf, MAX_DATA_LINE).await?;
+                let n =
+                    crate::proxy::read_limited_line(reader, &mut line_buf, MAX_DATA_LINE).await?;
                 if n == 0 {
                     break;
                 }
@@ -323,10 +308,7 @@ fn extract_domain(rcpt_line: &str) -> String {
     let raw = if let Some(at_pos) = rcpt_line.rfind('@') {
         let after_at = &rcpt_line[at_pos + 1..];
         // Strip trailing > and whitespace
-        after_at
-            .trim_end_matches('>')
-            .trim()
-            .to_lowercase()
+        after_at.trim_end_matches('>').trim().to_lowercase()
     } else {
         return "unknown".to_string();
     };
@@ -335,7 +317,9 @@ fn extract_domain(rcpt_line: &str) -> String {
     // Reject empty, path traversal (..), or any other unsafe characters.
     if raw.is_empty()
         || raw.contains("..")
-        || !raw.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        || !raw
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
     {
         return "unknown".to_string();
     }
@@ -355,10 +339,7 @@ mod tests {
 
     #[test]
     fn test_extract_domain() {
-        assert_eq!(
-            extract_domain("RCPT TO:<user@example.com>"),
-            "example.com"
-        );
+        assert_eq!(extract_domain("RCPT TO:<user@example.com>"), "example.com");
         assert_eq!(
             extract_domain("RCPT TO: user@test.localhost"),
             "test.localhost"
@@ -372,29 +353,11 @@ mod tests {
 
     #[test]
     fn test_extract_domain_path_traversal() {
-        assert_eq!(
-            extract_domain("RCPT TO:<user@../../etc>"),
-            "unknown"
-        );
-        assert_eq!(
-            extract_domain("RCPT TO:<user@..>"),
-            "unknown"
-        );
-        assert_eq!(
-            extract_domain("RCPT TO:<user@foo/../bar>"),
-            "unknown"
-        );
-        assert_eq!(
-            extract_domain("RCPT TO:<user@evil/path>"),
-            "unknown"
-        );
-        assert_eq!(
-            extract_domain("RCPT TO:<user@evil space>"),
-            "unknown"
-        );
-        assert_eq!(
-            extract_domain("RCPT TO:<user@evil\nnewline>"),
-            "unknown"
-        );
+        assert_eq!(extract_domain("RCPT TO:<user@../../etc>"), "unknown");
+        assert_eq!(extract_domain("RCPT TO:<user@..>"), "unknown");
+        assert_eq!(extract_domain("RCPT TO:<user@foo/../bar>"), "unknown");
+        assert_eq!(extract_domain("RCPT TO:<user@evil/path>"), "unknown");
+        assert_eq!(extract_domain("RCPT TO:<user@evil space>"), "unknown");
+        assert_eq!(extract_domain("RCPT TO:<user@evil\nnewline>"), "unknown");
     }
 }
