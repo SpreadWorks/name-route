@@ -15,7 +15,6 @@ mod signal;
 mod tls;
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -272,38 +271,15 @@ async fn run_server(
                 );
                 continue;
             }
-            let (host, port_str) = match route.backend.rsplit_once(':') {
-                Some((h, p)) => (h, p),
-                None => {
+            let (addr, port) = match control::parse_backend(&route.backend) {
+                Ok(v) => v,
+                Err(e) => {
                     warn!(
                         protocol = %route.protocol,
                         key = %route.key,
                         backend = %route.backend,
-                        "Invalid backend address (expected host:port), skipping"
-                    );
-                    continue;
-                }
-            };
-            let port: u16 = match port_str.parse() {
-                Ok(p) => p,
-                Err(_) => {
-                    warn!(
-                        protocol = %route.protocol,
-                        key = %route.key,
-                        backend = %route.backend,
-                        "Invalid port in backend address, skipping"
-                    );
-                    continue;
-                }
-            };
-            let addr: IpAddr = match host.parse() {
-                Ok(a) => a,
-                Err(_) => {
-                    warn!(
-                        protocol = %route.protocol,
-                        key = %route.key,
-                        backend = %route.backend,
-                        "Invalid IP in backend address, skipping"
+                        error = %e,
+                        "Invalid backend address in static route, skipping"
                     );
                     continue;
                 }

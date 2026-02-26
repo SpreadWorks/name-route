@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -185,7 +185,7 @@ async fn handle_connection(
 
     loop {
         line.clear();
-        let n = read_limited_line(&mut reader, &mut line, MAX_LINE).await?;
+        let n = crate::proxy::read_limited_line(&mut reader, &mut line, MAX_LINE).await?;
         if n == 0 {
             break;
         }
@@ -337,7 +337,7 @@ fn build_url(
     }
 }
 
-fn parse_backend(s: &str) -> Result<(IpAddr, u16), String> {
+pub fn parse_backend(s: &str) -> Result<(IpAddr, u16), String> {
     let (host, port_str) = s
         .rsplit_once(':')
         .ok_or_else(|| format!("invalid backend address (expected host:port): {}", s))?;
@@ -353,45 +353,6 @@ fn parse_backend(s: &str) -> Result<(IpAddr, u16), String> {
     Ok((addr, port))
 }
 
-/// Read a line from the buffered reader, limited to `max_bytes`.
-/// Returns an error if the line exceeds the limit.
-async fn read_limited_line<R: AsyncBufRead + Unpin>(
-    reader: &mut R,
-    buf: &mut String,
-    max_bytes: usize,
-) -> std::io::Result<usize> {
-    let mut total = 0;
-    loop {
-        let available = reader.fill_buf().await?;
-        if available.is_empty() {
-            return Ok(total);
-        }
-        if let Some(newline_pos) = available.iter().position(|&b| b == b'\n') {
-            let to_consume = newline_pos + 1;
-            let chunk = &available[..to_consume];
-            total += chunk.len();
-            if total > max_bytes {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("line too long (>{} bytes)", max_bytes),
-                ));
-            }
-            buf.push_str(&String::from_utf8_lossy(chunk));
-            reader.consume(to_consume);
-            return Ok(total);
-        }
-        let len = available.len();
-        total += len;
-        if total > max_bytes {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("line too long (>{} bytes)", max_bytes),
-            ));
-        }
-        buf.push_str(&String::from_utf8_lossy(available));
-        reader.consume(len);
-    }
-}
 
 // --- Client ---
 

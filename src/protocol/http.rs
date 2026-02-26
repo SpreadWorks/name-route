@@ -14,8 +14,6 @@ use crate::proxy;
 use crate::router::SharedRoutingTable;
 
 const MAX_HEADER_SIZE: usize = 8192;
-/// Maximum HTTP relay duration (30 minutes).
-const MAX_RELAY_DURATION: Duration = Duration::from_secs(1800);
 
 pub struct HttpHandler {
     routing_table: SharedRoutingTable,
@@ -182,7 +180,7 @@ where
 
     let mut client = buf_reader.into_inner();
     match tokio::time::timeout(
-        MAX_RELAY_DURATION,
+        proxy::MAX_RELAY_DURATION,
         copy_bidirectional(&mut client, &mut backend_stream),
     )
     .await
