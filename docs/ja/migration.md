@@ -28,7 +28,7 @@ postgresql://localhost:15432/mydb
 
 ```bash
 # インストール（全プラットフォームの手順は README の Install セクションを参照）
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-musl -o nameroute
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 
@@ -225,7 +225,7 @@ AI に以下のプロンプトをコピペして使ってください:
 
 ```
 以下の URL に記載されている手順に従って、このプロジェクトに name-route を導入してください。
-https://raw.githubusercontent.com/user/name-route/main/docs/ja/migration.md
+https://raw.githubusercontent.com/SpreadWorks/name-route/refs/heads/main/docs/ja/migration.md
 
 対象のプロジェクトディレクトリ: /path/to/project
 ```

@@ -42,7 +42,7 @@ No matter what port backends actually listen on, developers only think about nam
 ## Install
 
 ```bash
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-musl -o nameroute
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 ```
@@ -116,7 +116,7 @@ sudo mv nameroute /usr/local/bin/
 #### Linux (ARM64)
 
 ```bash
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-unknown-linux-gnu -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-aarch64-unknown-linux-musl -o nameroute
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 ```

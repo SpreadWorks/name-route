@@ -28,7 +28,7 @@ postgresql://localhost:15432/mydb
 
 ```bash
 # Install (see README for all platforms)
-curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-gnu -o nameroute
+curl -L https://github.com/SpreadWorks/name-route/releases/latest/download/nameroute-x86_64-unknown-linux-musl -o nameroute
 chmod +x nameroute
 sudo mv nameroute /usr/local/bin/
 
@@ -225,7 +225,7 @@ To use this guide, give the AI agent the following prompt with the raw URL of th
 
 ```
 Migrate this project to use name-route by following the instructions at:
-https://raw.githubusercontent.com/user/name-route/main/docs/migration.md
+https://raw.githubusercontent.com/SpreadWorks/name-route/refs/heads/main/docs/migration.md
 
 The project directory is: /path/to/project
 ```
