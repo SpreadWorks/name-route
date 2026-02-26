@@ -70,7 +70,7 @@ pub async fn signal_handler(
 
 /// Drop privileges to the specified user/group.
 pub fn drop_privileges(user: Option<&str>, group: Option<&str>) -> crate::error::Result<()> {
-    use nix::unistd::{setgid, setgroups, setuid};
+    use nix::unistd::{setgid, setuid};
 
     if let Some(group_name) = group {
         let gid = nix::unistd::Group::from_name(group_name)
@@ -85,9 +85,17 @@ pub fn drop_privileges(user: Option<&str>, group: Option<&str>) -> crate::error:
             })?
             .gid;
         // Clear supplementary groups before changing primary group
-        setgroups(&[gid]).map_err(|e| {
-            crate::error::Error::Config(format!("Failed to setgroups for '{}': {}", group_name, e))
-        })?;
+        // setgroups is not available on macOS in the nix crate
+        #[cfg(not(target_os = "macos"))]
+        {
+            use nix::unistd::setgroups;
+            setgroups(&[gid]).map_err(|e| {
+                crate::error::Error::Config(format!(
+                    "Failed to setgroups for '{}': {}",
+                    group_name, e
+                ))
+            })?;
+        }
         setgid(gid).map_err(|e| {
             crate::error::Error::Config(format!("Failed to setgid to '{}': {}", group_name, e))
         })?;
