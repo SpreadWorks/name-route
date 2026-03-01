@@ -292,23 +292,23 @@ idle_timeout = 10          # idle timeout after L7 parsing (seconds)
 
 [listeners.http]
 protocol = "http"
-bind = "127.0.0.1:8080"
+bind = "0.0.0.0:8080"
 
 [listeners.https]
 protocol = "https"
-bind = "127.0.0.1:8443"
+bind = "0.0.0.0:8443"
 
 [listeners.postgres]
 protocol = "postgres"
-bind = "127.0.0.1:15432"
+bind = "0.0.0.0:15432"
 
 [listeners.mysql]
 protocol = "mysql"
-bind = "127.0.0.1:13306"
+bind = "0.0.0.0:13306"
 
 [listeners.smtp]
 protocol = "smtp"
-bind = "127.0.0.1:10025"
+bind = "0.0.0.0:10025"
 
 [http]
 base_domain = "localhost"  # parent domain for subdomains
@@ -335,6 +335,22 @@ backend = "127.0.0.1:3000"
 ```
 
 See [config.example.toml](config.example.toml) for the full reference.
+
+<details>
+<summary>Note on bind address (<code>0.0.0.0</code> vs <code>127.0.0.1</code>)</summary>
+
+By default, all listeners bind to `0.0.0.0` (all interfaces). This allows Docker containers to reach nameroute via `host.docker.internal` without any extra configuration.
+
+Since `0.0.0.0` accepts connections from **any network interface**, other devices on your local network can also reach the listener ports. If this is a concern, change the bind address to `127.0.0.1` to restrict access to localhost only:
+
+```toml
+[listeners.http]
+bind = "127.0.0.1:8080"
+```
+
+**Caution:** If you change the bind address to `127.0.0.1`, Docker containers will no longer be able to connect to nameroute via `host.docker.internal`. You will need to publish ports explicitly or use Docker's host network mode instead.
+
+</details>
 
 
 ## Tested with

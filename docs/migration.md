@@ -240,11 +240,11 @@ The project directory is: /path/to/project
 
 | Protocol   | Listen address      | Routing key source       |
 |------------|---------------------|--------------------------|
-| HTTP       | `127.0.0.1:8080`    | Subdomain of Host header |
-| HTTPS      | `127.0.0.1:8443`    | SNI (TLS Server Name)    |
-| PostgreSQL | `127.0.0.1:15432`   | Database name            |
-| MySQL      | `127.0.0.1:13306`   | Database name            |
-| SMTP       | `127.0.0.1:10025`   | Recipient domain         |
+| HTTP       | `0.0.0.0:8080`    | Subdomain of Host header |
+| HTTPS      | `0.0.0.0:8443`    | SNI (TLS Server Name)    |
+| PostgreSQL | `0.0.0.0:15432`   | Database name            |
+| MySQL      | `0.0.0.0:13306`   | Database name            |
+| SMTP       | `0.0.0.0:10025`   | Recipient domain         |
 
 ### Migration patterns
 

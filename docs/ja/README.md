@@ -295,23 +295,23 @@ idle_timeout = 10          # L7 解析後のアイドルタイムアウト（秒
 
 [listeners.http]
 protocol = "http"
-bind = "127.0.0.1:8080"
+bind = "0.0.0.0:8080"
 
 [listeners.https]
 protocol = "https"
-bind = "127.0.0.1:8443"
+bind = "0.0.0.0:8443"
 
 [listeners.postgres]
 protocol = "postgres"
-bind = "127.0.0.1:15432"
+bind = "0.0.0.0:15432"
 
 [listeners.mysql]
 protocol = "mysql"
-bind = "127.0.0.1:13306"
+bind = "0.0.0.0:13306"
 
 [listeners.smtp]
 protocol = "smtp"
-bind = "127.0.0.1:10025"
+bind = "0.0.0.0:10025"
 
 [http]
 base_domain = "localhost"  # サブドメインの親ドメイン
@@ -338,6 +338,22 @@ backend = "127.0.0.1:3000"
 ```
 
 すべての設定項目は [config.example.toml](../../config.example.toml) を参照してください。
+
+<details>
+<summary>bind アドレスについて（<code>0.0.0.0</code> vs <code>127.0.0.1</code>）</summary>
+
+デフォルトでは、すべてのリスナーが `0.0.0.0`（全インターフェース）でバインドされます。これにより、Docker コンテナから `host.docker.internal` 経由で nameroute に追加設定なしでアクセスできます。
+
+`0.0.0.0` は**すべてのネットワークインターフェース**からの接続を受け付けるため、ローカルネットワーク上の他のデバイスからもリスナーポートにアクセス可能です。これが懸念される場合は、bind アドレスを `127.0.0.1` に変更することで、localhost からのアクセスのみに制限できます:
+
+```toml
+[listeners.http]
+bind = "127.0.0.1:8080"
+```
+
+**注意:** bind アドレスを `127.0.0.1` に変更すると、Docker コンテナから `host.docker.internal` 経由で nameroute に接続できなくなります。その場合は、ポートを明示的に公開するか、Docker の host ネットワークモードを使用する必要があります。
+
+</details>
 
 
 ## Tested with
