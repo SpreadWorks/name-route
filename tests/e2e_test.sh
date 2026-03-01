@@ -113,19 +113,19 @@ connect_retries = 3
 
 [listeners.postgres]
 protocol = "postgres"
-bind = "127.0.0.1:$PG_PORT"
+bind = "0.0.0.0:$PG_PORT"
 
 [listeners.mysql]
 protocol = "mysql"
-bind = "127.0.0.1:$MYSQL_PORT"
+bind = "0.0.0.0:$MYSQL_PORT"
 
 [listeners.http]
 protocol = "http"
-bind = "127.0.0.1:$HTTP_PORT"
+bind = "0.0.0.0:$HTTP_PORT"
 
 [listeners.smtp]
 protocol = "smtp"
-bind = "127.0.0.1:$SMTP_PORT"
+bind = "0.0.0.0:$SMTP_PORT"
 
 [http]
 base_domain = "localhost"
@@ -535,6 +535,24 @@ if $HAS_CURL; then
     fi
 else
     echo "  curl not found; skipping HTTP tests"
+fi
+
+# ======================================================================
+#  Docker-to-host connectivity test
+# ======================================================================
+echo ""
+echo "=== Docker-to-host connectivity test ==="
+
+echo "-- HTTP: Docker container via host.docker.internal --"
+DOCKER_HTTP_STATUS=$(docker run --rm --add-host=host.docker.internal:host-gateway \
+    curlimages/curl:latest \
+    -s -o /dev/null -w "%{http_code}" \
+    -H "Host: static1.localhost" \
+    "http://host.docker.internal:$HTTP_PORT/" 2>/dev/null) || true
+if [ "$DOCKER_HTTP_STATUS" = "200" ]; then
+    pass "Docker-to-host HTTP: status 200 via host.docker.internal"
+else
+    fail "Docker-to-host HTTP: status '$DOCKER_HTTP_STATUS'"
 fi
 
 # ======================================================================

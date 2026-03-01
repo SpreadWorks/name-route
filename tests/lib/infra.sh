@@ -36,13 +36,13 @@ connect_timeout = 5
 connect_retries = 3
 [listeners.postgres]
 protocol = "postgres"
-bind = "127.0.0.1:$PG_PORT"
+bind = "0.0.0.0:$PG_PORT"
 [listeners.mysql]
 protocol = "mysql"
-bind = "127.0.0.1:$MYSQL_PORT"
+bind = "0.0.0.0:$MYSQL_PORT"
 [listeners.smtp]
 protocol = "smtp"
-bind = "127.0.0.1:10025"
+bind = "0.0.0.0:10025"
 [smtp]
 mailbox_dir = "/tmp/nameroute-e2e-mailbox"
 EOF

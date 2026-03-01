@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-03-01
+
+### Changed
+
+- Default listener bind address changed from `127.0.0.1` to `0.0.0.0` for all protocols (HTTP, HTTPS, PostgreSQL, MySQL, SMTP). This allows Docker containers to connect to nameroute via `host.docker.internal` without extra configuration. The management API remains bound to `127.0.0.1`.
+
 ## [0.1.0] - 2026-02-26
 
 Initial release. **Name it. Route it.**
@@ -33,4 +39,5 @@ name-route is a local TCP L7 router for development environments. Instead of man
 - deb / rpm packages
 - Homebrew: `brew install SpreadWorks/tap/nameroute`
 
+[0.2.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.2.0
 [0.1.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.1.0
