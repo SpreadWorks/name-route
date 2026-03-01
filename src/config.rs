@@ -247,7 +247,7 @@ fn default_listeners() -> HashMap<String, ListenerConfig> {
         "postgres".to_string(),
         ListenerConfig {
             protocol: ProtocolKind::Postgres,
-            bind: "127.0.0.1:15432".to_string(),
+            bind: "0.0.0.0:15432".to_string(),
             tls_mode: None,
             enabled: true,
         },
@@ -256,7 +256,7 @@ fn default_listeners() -> HashMap<String, ListenerConfig> {
         "mysql".to_string(),
         ListenerConfig {
             protocol: ProtocolKind::Mysql,
-            bind: "127.0.0.1:13306".to_string(),
+            bind: "0.0.0.0:13306".to_string(),
             tls_mode: None,
             enabled: true,
         },
@@ -265,7 +265,7 @@ fn default_listeners() -> HashMap<String, ListenerConfig> {
         "http".to_string(),
         ListenerConfig {
             protocol: ProtocolKind::Http,
-            bind: "127.0.0.1:8080".to_string(),
+            bind: "0.0.0.0:8080".to_string(),
             tls_mode: None,
             enabled: true,
         },
@@ -274,7 +274,7 @@ fn default_listeners() -> HashMap<String, ListenerConfig> {
         "smtp".to_string(),
         ListenerConfig {
             protocol: ProtocolKind::Smtp,
-            bind: "127.0.0.1:10025".to_string(),
+            bind: "0.0.0.0:10025".to_string(),
             tls_mode: None,
             enabled: true,
         },
@@ -283,7 +283,7 @@ fn default_listeners() -> HashMap<String, ListenerConfig> {
         "https".to_string(),
         ListenerConfig {
             protocol: ProtocolKind::Https,
-            bind: "127.0.0.1:8443".to_string(),
+            bind: "0.0.0.0:8443".to_string(),
             tls_mode: None,
             enabled: true,
         },

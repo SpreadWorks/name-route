@@ -1,6 +1,6 @@
 [package]
 name = "name-route"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Local TCP L7 router for dev environments — route by name, not port number"
