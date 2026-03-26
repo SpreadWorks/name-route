@@ -391,6 +391,7 @@ echo "=== SMTP tests ==="
 smtp_send() {
     local RCPT_TO="$1"
     local BODY="$2"
+    local MAIL_FROM="${3:-sender@test.local}"
     bash --norc -c '
         exec 3<>/dev/tcp/127.0.0.1/'"$SMTP_PORT"'
 
@@ -402,7 +403,7 @@ smtp_send() {
             case "$LINE" in 250\ *) break ;; esac
         done
 
-        printf "MAIL FROM:<sender@test.local>\r\n" >&3
+        printf "MAIL FROM:<'"$MAIL_FROM"'>\r\n" >&3
         read -t 5 -r LINE <&3; echo "$LINE"
 
         printf "RCPT TO:<'"$RCPT_TO"'>\r\n" >&3
@@ -430,14 +431,52 @@ else
     fail "SMTP send: output was '$(echo "$SMTP_OUT" | tr '\n' '|')'"
 fi
 
-# Test 2: Verify email file was saved
-echo "-- SMTP: Verify email file saved --"
+# Test 2: Verify email files were saved in domain/local directory
+echo "-- SMTP: Verify email files in domain/local mailbox --"
 sleep 0.5
-EML_COUNT=$(find "$MAILBOX_DIR/example.com" -name "*.eml" 2>/dev/null | wc -l || echo 0)
+EML_DIR="$MAILBOX_DIR/example.com/user"
+EML_COUNT=$(find "$EML_DIR" -name "*.eml" 2>/dev/null | wc -l || echo 0)
+TXT_COUNT=$(find "$EML_DIR" -name "*.txt" 2>/dev/null | wc -l || echo 0)
 if [ "$EML_COUNT" -ge 1 ]; then
-    pass "SMTP mailbox: $EML_COUNT .eml file(s) in example.com/"
+    pass "SMTP mailbox: $EML_COUNT .eml file(s) in example.com/user/"
 else
-    fail "SMTP mailbox: no .eml found in $MAILBOX_DIR/example.com/"
+    fail "SMTP mailbox: no .eml found in $EML_DIR/"
+fi
+if [ "$TXT_COUNT" -ge 1 ]; then
+    pass "SMTP mailbox: $TXT_COUNT .txt file(s) in example.com/user/"
+else
+    fail "SMTP mailbox: no .txt found in $EML_DIR/"
+fi
+
+# Test 2.1: Verify filename format includes sanitized envelope sender
+LATEST_EML=$(ls -1t "$EML_DIR"/*.eml 2>/dev/null | head -n1 || true)
+BASENAME=$(basename "$LATEST_EML")
+if echo "$BASENAME" | grep -Eq '^[0-9]{8}_[0-9]{6}_sender-test-local_[0-9a-f]{8}\.eml$'; then
+    pass "SMTP mailbox filename: includes timestamp/from/shortid"
+else
+    fail "SMTP mailbox filename: unexpected '$BASENAME'"
+fi
+
+# Test 2.2: Verify raw .eml is not modified (From header is not auto-added)
+if [ -n "$LATEST_EML" ] && ! tr -d '\r' < "$LATEST_EML" | grep -qi '^From:'; then
+    pass "SMTP raw .eml: From header not auto-injected"
+else
+    fail "SMTP raw .eml: unexpected From header in $LATEST_EML"
+fi
+
+# Test 2.3: Verify .txt contains required fields
+LATEST_TXT=$(ls -1t "$EML_DIR"/*.txt 2>/dev/null | head -n1 || true)
+if [ -n "$LATEST_TXT" ] \
+   && grep -qi '^content-type:' "$LATEST_TXT" \
+   && grep -qi '^from:' "$LATEST_TXT" \
+   && grep -qi '^to:' "$LATEST_TXT" \
+   && grep -qi '^cc:' "$LATEST_TXT" \
+   && grep -qi '^subject:' "$LATEST_TXT" \
+   && grep -qi '^body:' "$LATEST_TXT" \
+   && grep -qi '^attachments:' "$LATEST_TXT"; then
+    pass "SMTP preview .txt: required fields exist"
+else
+    fail "SMTP preview .txt: missing required fields in $LATEST_TXT"
 fi
 
 # Test 3: Send to a different domain
@@ -452,11 +491,28 @@ fi
 # Test 4: Verify second domain directory
 echo "-- SMTP: Verify other.org mailbox --"
 sleep 0.5
-EML_COUNT2=$(find "$MAILBOX_DIR/other.org" -name "*.eml" 2>/dev/null | wc -l || echo 0)
+EML_DIR2="$MAILBOX_DIR/other.org/admin"
+EML_COUNT2=$(find "$EML_DIR2" -name "*.eml" 2>/dev/null | wc -l || echo 0)
 if [ "$EML_COUNT2" -ge 1 ]; then
-    pass "SMTP mailbox: $EML_COUNT2 .eml file(s) in other.org/"
+    pass "SMTP mailbox: $EML_COUNT2 .eml file(s) in other.org/admin/"
 else
-    fail "SMTP mailbox: no .eml found in $MAILBOX_DIR/other.org/"
+    fail "SMTP mailbox: no .eml found in $EML_DIR2/"
+fi
+
+# Test 4.1: Send multipart with attachment and verify attachment name appears in .txt
+echo "-- SMTP: Multipart with attachment preview --"
+SMTP_OUT3=$(smtp_send "admin@other.org" "Subject: Multi\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\ntext part\r\n--b\r\nContent-Type: application/pdf; name=\"sample.pdf\"\r\nContent-Disposition: attachment; filename=\"sample.pdf\"\r\n\r\nJVBERi0x\r\n--b--")
+if echo "$SMTP_OUT3" | grep -q "^250 OK"; then
+    pass "SMTP multipart send: got 250 OK"
+else
+    fail "SMTP multipart send: output was '$(echo "$SMTP_OUT3" | tr '\n' '|')'"
+fi
+sleep 0.5
+LATEST_TXT2=$(ls -1t "$EML_DIR2"/*.txt 2>/dev/null | head -n1 || true)
+if [ -n "$LATEST_TXT2" ] && grep -q "sample.pdf" "$LATEST_TXT2"; then
+    pass "SMTP preview .txt: attachment filename listed"
+else
+    fail "SMTP preview .txt: attachment filename missing in $LATEST_TXT2"
 fi
 
 # Test 5: QUIT without sending email
