@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-03-26
+
+### Changed
+
+- SMTP mailbox layout changed from domain-only to recipient-specific paths: `/var/lib/name-route/mailbox/<to-domain>/<to-local>/`.
+- SMTP saved filenames now include timestamp, sanitized envelope sender, and short id: `YYYYMMDD_HHMMSS_<from-mailaddress>_<shortid>.eml`.
+
+### Added
+
+- SMTP now generates a `.txt` preview file alongside each raw `.eml` with fields: `content-type`, `from`, `to`, `cc`, `subject`, `body`, and attachment filename list.
+- SMTP preview for multipart messages now selects text body with priority `text/plain` then `text/html`.
+
+### Fixed
+
+- Raw SMTP `.eml` output is no longer modified; `From` header is not auto-injected when absent.
+
 ## [0.2.0] - 2026-03-01
 
 ### Changed
@@ -41,3 +57,4 @@ name-route is a local TCP L7 router for development environments. Instead of man
 
 [0.2.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.2.0
 [0.1.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.1.0
+[0.3.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.3.0
