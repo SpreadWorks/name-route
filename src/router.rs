@@ -13,6 +13,18 @@ pub struct Backend {
     pub addrs: Vec<IpAddr>,
     pub port: u16,
     pub tls_mode: TlsMode,
+    /// Route-level accepted base domains. Empty means use global HTTP base domains.
+    pub base_domains: Vec<String>,
+}
+
+impl Backend {
+    pub fn effective_base_domains<'a>(&'a self, global_base_domains: &'a [String]) -> &'a [String] {
+        if self.base_domains.is_empty() {
+            global_base_domains
+        } else {
+            &self.base_domains
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -90,6 +102,7 @@ mod tests {
             addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 2))],
             port: 5432,
             tls_mode: TlsMode::Passthrough,
+            base_domains: Vec::new(),
         }
     }
 
@@ -157,6 +170,7 @@ mod tests {
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 3))],
                 port: 3306,
                 tls_mode: TlsMode::Passthrough,
+                base_domains: Vec::new(),
             },
         );
 
@@ -182,6 +196,7 @@ mod tests {
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 3000,
                 tls_mode: TlsMode::Terminate,
+                base_domains: Vec::new(),
             },
         );
 
@@ -223,6 +238,7 @@ mod tests {
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 3000,
                 tls_mode: TlsMode::Passthrough,
+                base_domains: Vec::new(),
             },
         );
         table.insert(
@@ -234,6 +250,7 @@ mod tests {
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 2))],
                 port: 80,
                 tls_mode: TlsMode::Passthrough,
+                base_domains: Vec::new(),
             },
         );
         table.insert(
@@ -245,6 +262,7 @@ mod tests {
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 4000,
                 tls_mode: TlsMode::Terminate,
+                base_domains: Vec::new(),
             },
         );
 
@@ -269,6 +287,7 @@ mod tests {
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 5000,
                 tls_mode: TlsMode::Terminate,
+                base_domains: Vec::new(),
             },
         );
 

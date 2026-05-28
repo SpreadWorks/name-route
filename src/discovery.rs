@@ -14,8 +14,34 @@ use crate::router::{Backend, RoutingTable, SharedRoutingTable};
 
 #[derive(Debug, Deserialize)]
 struct ProjectConfig {
+    key: Option<String>,
+    backend_host: Option<String>,
+    #[serde(default)]
+    base_domains: Option<Vec<String>>,
+    #[serde(default)]
+    http: Option<ProjectProtocolConfig>,
+    #[serde(default)]
+    https: Option<ProjectProtocolConfig>,
+    #[serde(default)]
+    postgres: Option<ProjectProtocolConfig>,
+    #[serde(default)]
+    mysql: Option<ProjectProtocolConfig>,
+    #[serde(default)]
+    smtp: Option<ProjectProtocolConfig>,
     #[serde(default)]
     routes: Vec<ProjectRoute>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectProtocolConfig {
+    key: Option<String>,
+    backend: Option<String>,
+    backend_host: Option<String>,
+    port: Option<u16>,
+    #[serde(default)]
+    base_domains: Option<Vec<String>>,
+    #[serde(default)]
+    tls_mode: Option<TlsMode>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +51,8 @@ struct ProjectRoute {
     backend: String,
     #[serde(default)]
     tls_mode: Option<TlsMode>,
+    #[serde(default)]
+    base_domains: Option<Vec<String>>,
 }
 
 /// Expand `~` at the start of a path to `$HOME`.
@@ -126,8 +154,47 @@ fn parse_project_config(
 
     let mut result = Vec::new();
 
+    append_protocol_route(
+        &mut result,
+        ProtocolKind::Http,
+        project.http.as_ref(),
+        &project,
+        dir_name,
+    );
+    append_protocol_route(
+        &mut result,
+        ProtocolKind::Https,
+        project.https.as_ref(),
+        &project,
+        dir_name,
+    );
+    append_protocol_route(
+        &mut result,
+        ProtocolKind::Postgres,
+        project.postgres.as_ref(),
+        &project,
+        dir_name,
+    );
+    append_protocol_route(
+        &mut result,
+        ProtocolKind::Mysql,
+        project.mysql.as_ref(),
+        &project,
+        dir_name,
+    );
+    append_protocol_route(
+        &mut result,
+        ProtocolKind::Smtp,
+        project.smtp.as_ref(),
+        &project,
+        dir_name,
+    );
+
     for route in project.routes {
-        let key = route.key.unwrap_or_else(|| dir_name.to_string());
+        let key = route
+            .key
+            .or_else(|| project.key.clone())
+            .unwrap_or_else(|| dir_name.to_string());
 
         if let Err(e) = control::validate_key(&key) {
             warn!(key = %key, error = %e, "Invalid routing key in .nameroute.toml, skipping");
@@ -146,6 +213,13 @@ fn parse_project_config(
                 continue;
             }
         };
+        let base_domains = route
+            .base_domains
+            .or_else(|| project.base_domains.clone())
+            .unwrap_or_default();
+        if !valid_base_domains(&base_domains, &key) {
+            continue;
+        }
 
         let backend = Backend {
             source: "discovery".to_string(),
@@ -153,12 +227,92 @@ fn parse_project_config(
             addrs: vec![addr],
             port,
             tls_mode: route.tls_mode.unwrap_or(TlsMode::Passthrough),
+            base_domains,
         };
 
         result.push((route.protocol, key, backend));
     }
 
     Ok(result)
+}
+
+fn append_protocol_route(
+    result: &mut Vec<(ProtocolKind, String, Backend)>,
+    protocol: ProtocolKind,
+    section: Option<&ProjectProtocolConfig>,
+    project: &ProjectConfig,
+    dir_name: &str,
+) {
+    let Some(section) = section else {
+        return;
+    };
+
+    let backend = match &section.backend {
+        Some(backend) => backend.clone(),
+        None => {
+            let Some(port) = section.port else {
+                return;
+            };
+            let host = section
+                .backend_host
+                .clone()
+                .or_else(|| project.backend_host.clone())
+                .unwrap_or_else(|| "127.0.0.1".to_string());
+            format!("{}:{}", host, port)
+        }
+    };
+
+    let key = section
+        .key
+        .clone()
+        .or_else(|| project.key.clone())
+        .unwrap_or_else(|| dir_name.to_string());
+
+    if let Err(e) = control::validate_key(&key) {
+        warn!(key = %key, error = %e, "Invalid routing key in .nameroute.toml, skipping");
+        return;
+    }
+
+    let (addr, port) = match control::parse_backend(&backend) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                backend = %backend,
+                key = %key,
+                error = %e,
+                "Invalid backend address in .nameroute.toml, skipping"
+            );
+            return;
+        }
+    };
+
+    let base_domains = section
+        .base_domains
+        .clone()
+        .or_else(|| project.base_domains.clone())
+        .unwrap_or_default();
+    if !valid_base_domains(&base_domains, &key) {
+        return;
+    }
+
+    let backend = Backend {
+        source: "discovery".to_string(),
+        container_name: key.clone(),
+        addrs: vec![addr],
+        port,
+        tls_mode: section.tls_mode.unwrap_or(TlsMode::Passthrough),
+        base_domains,
+    };
+
+    result.push((protocol, key, backend));
+}
+
+fn valid_base_domains(base_domains: &[String], key: &str) -> bool {
+    if base_domains.iter().any(|domain| domain.trim().is_empty()) {
+        warn!(key = %key, "Invalid empty base domain in .nameroute.toml, skipping");
+        return false;
+    }
+    true
 }
 
 /// Run the discovery polling loop in the background.
@@ -206,17 +360,19 @@ pub async fn polling_loop(
 
                     // Ensure wildcard domain pattern for HTTPS routes
                     if *protocol == ProtocolKind::Https {
-                        domains::ensure_domain_for_key(
+                        let global_base_domains = config.http.effective_base_domains();
+                        let base_domains = backend.effective_base_domains(&global_base_domains);
+                        domains::ensure_domains_for_key(
                             key,
-                            &config.http.base_domain,
+                            base_domains,
                             config.tls.cert.as_deref().unwrap_or_default(),
                             config.tls.key.as_deref().unwrap_or_default(),
                         );
                     }
                 }
                 let count = table.len();
-                let base_domain = config.http.base_domain.clone();
-                crate::hosts::sync(&table, &base_domain);
+                let base_domains = config.http.effective_base_domains();
+                crate::hosts::sync(&table, &base_domains);
                 drop(table);
                 debug!(routes = count, "Routing table updated (discovery)");
             }
@@ -315,6 +471,66 @@ backend = "127.0.0.1:5432"
         assert_eq!(routes.len(), 2);
         assert_eq!(routes[0].0, ProtocolKind::Http);
         assert_eq!(routes[1].0, ProtocolKind::Postgres);
+    }
+
+    #[test]
+    fn test_parse_project_config_shorthand_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join(".nameroute.toml");
+        fs::write(
+            &config_path,
+            r#"
+key = "myapp"
+backend_host = "127.0.0.1"
+base_domains = ["localhost", "project.test"]
+
+[http]
+port = 3000
+
+[postgres]
+key = "myapp-db"
+port = 5432
+"#,
+        )
+        .unwrap();
+
+        let routes = parse_project_config(&config_path, "ignored-dir").unwrap();
+        assert_eq!(routes.len(), 2);
+        assert_eq!(routes[0].0, ProtocolKind::Http);
+        assert_eq!(routes[0].1, "myapp");
+        assert_eq!(routes[0].2.port, 3000);
+        assert_eq!(
+            routes[0].2.base_domains,
+            vec!["localhost".to_string(), "project.test".to_string()]
+        );
+        assert_eq!(routes[1].0, ProtocolKind::Postgres);
+        assert_eq!(routes[1].1, "myapp-db");
+    }
+
+    #[test]
+    fn test_parse_project_config_explicit_routes_override_shorthand() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join(".nameroute.toml");
+        fs::write(
+            &config_path,
+            r#"
+[http]
+port = 3000
+
+[[routes]]
+protocol = "http"
+backend = "127.0.0.1:4000"
+"#,
+        )
+        .unwrap();
+
+        let mut table = RoutingTable::new();
+        for (protocol, key, backend) in parse_project_config(&config_path, "myapp").unwrap() {
+            table.insert(protocol, key, backend);
+        }
+
+        let backend = table.lookup(ProtocolKind::Http, "myapp").unwrap();
+        assert_eq!(backend.port, 4000);
     }
 
     #[test]

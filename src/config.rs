@@ -89,12 +89,17 @@ pub struct StaticRoute {
     pub backend: String,
     #[serde(default)]
     pub tls_mode: Option<TlsMode>,
+    #[serde(default)]
+    pub base_domains: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct HttpConfig {
+    /// Deprecated: use `base_domains` instead. Kept for backward compatibility.
     #[serde(default = "default_base_domain")]
     pub base_domain: String,
+    #[serde(default)]
+    pub base_domains: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -186,7 +191,16 @@ impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             base_domain: default_base_domain(),
+            base_domains: None,
         }
+    }
+}
+
+impl HttpConfig {
+    pub fn effective_base_domains(&self) -> Vec<String> {
+        self.base_domains
+            .clone()
+            .unwrap_or_else(|| vec![self.base_domain.clone()])
     }
 }
 
@@ -340,6 +354,26 @@ impl Config {
                     route.key
                 )));
             }
+            if route.base_domains.as_ref().is_some_and(|v| v.is_empty()) {
+                return Err(Error::Config(format!(
+                    "route '{}': base_domains must contain at least one domain",
+                    route.key
+                )));
+            }
+        }
+        if let Some(base_domains) = &self.http.base_domains {
+            if base_domains.is_empty() {
+                return Err(Error::Config(
+                    "http.base_domains must contain at least one domain".into(),
+                ));
+            }
+        }
+        for domain in self.http.effective_base_domains() {
+            if domain.trim().is_empty() {
+                return Err(Error::Config(
+                    "http base domains must not contain empty values".into(),
+                ));
+            }
         }
         let needs_terminate = self.listeners.values().any(|lc| {
             lc.protocol == ProtocolKind::Https
@@ -393,6 +427,10 @@ mod tests {
         assert!(config.listeners.contains_key("smtp"));
         assert!(config.listeners.contains_key("https"));
         assert_eq!(config.smtp.max_message_size, 10_485_760);
+        assert_eq!(
+            config.http.effective_base_domains(),
+            vec!["localhost".to_string()]
+        );
     }
 
     #[test]
@@ -405,5 +443,36 @@ log_level = "debug"
         assert_eq!(config.docker.poll_interval, 3);
         assert_eq!(config.backend.connect_retries, 3);
         assert_eq!(config.smtp.max_message_size, 10_485_760);
+    }
+
+    #[test]
+    fn test_base_domain_backward_compatibility() {
+        let content = r#"
+[general]
+
+[http]
+base_domain = "legacy.local"
+"#;
+        let config: Config = toml::from_str(content).unwrap();
+        assert_eq!(
+            config.http.effective_base_domains(),
+            vec!["legacy.local".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_base_domains_preferred() {
+        let content = r#"
+[general]
+
+[http]
+base_domain = "legacy.local"
+base_domains = ["localhost", "project.test"]
+"#;
+        let config: Config = toml::from_str(content).unwrap();
+        assert_eq!(
+            config.http.effective_base_domains(),
+            vec!["localhost".to_string(), "project.test".to_string()]
+        );
     }
 }

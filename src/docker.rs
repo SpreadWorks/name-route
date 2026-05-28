@@ -148,6 +148,7 @@ pub async fn poll_once(docker: &Docker) -> crate::error::Result<RoutingTable> {
                 addrs: addrs.clone(),
                 port,
                 tls_mode: route.tls_mode.unwrap_or(TlsMode::Passthrough),
+                base_domains: Vec::new(),
             };
 
             let collision = table.insert(route.protocol, route.key.clone(), backend);
@@ -228,9 +229,12 @@ pub async fn polling_loop(
 
                             // Ensure wildcard domain pattern for HTTPS routes
                             if *protocol == ProtocolKind::Https {
-                                domains::ensure_domain_for_key(
+                                let global_base_domains = config.http.effective_base_domains();
+                                let base_domains =
+                                    backend.effective_base_domains(&global_base_domains);
+                                domains::ensure_domains_for_key(
                                     key,
-                                    &config.http.base_domain,
+                                    base_domains,
                                     config.tls.cert.as_deref().unwrap_or_default(),
                                     config.tls.key.as_deref().unwrap_or_default(),
                                 );
@@ -238,8 +242,8 @@ pub async fn polling_loop(
                         }
                         let count = table.len();
                         // Update /etc/hosts with current HTTP routes
-                        let base_domain = config.http.base_domain.clone();
-                        crate::hosts::sync(&table, &base_domain);
+                        let base_domains = config.http.effective_base_domains();
+                        crate::hosts::sync(&table, &base_domains);
                         drop(table);
                         debug!(routes = count, "Routing table updated");
                     }

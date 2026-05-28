@@ -199,27 +199,29 @@ Each project's `.nameroute.toml`:
 
 ```toml
 # ~/workspace/blog/.nameroute.toml
-[[routes]]
-protocol = "http"
-key = "blog"
-backend = "127.0.0.1:3000"
+key = "blog"                    # optional; defaults to directory name
+backend_host = "127.0.0.1"      # optional; used with protocol port settings
+base_domains = ["localhost"]    # optional; route-level domains for this project
+
+[http]
+port = 3000
 ```
 
 ```toml
 # ~/workspace/shop/.nameroute.toml
-[[routes]]
-protocol = "http"
-key = "shop"
-backend = "127.0.0.1:3001"
+[http]
+port = 3001
 ```
 
 ```toml
 # ~/workspace/api-server/.nameroute.toml
-[[routes]]
-protocol = "http"
 key = "api"
-backend = "127.0.0.1:8000"
+
+[http]
+port = 8000
 ```
+
+Supported shorthand sections are `[http]`, `[https]`, `[postgres]`, `[mysql]`, and `[smtp]`. A section can specify `port`, or `backend = "127.0.0.1:3000"` for a full backend address. Section-level `key`, `backend_host`, `base_domains`, and `tls_mode` override top-level defaults. Explicit `[[routes]]` entries are still supported and win if they generate the same `protocol/key`.
 
 Daemon configuration:
 

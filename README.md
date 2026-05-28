@@ -208,10 +208,18 @@ With Discovery enabled, name-route automatically finds `.nameroute.toml` files i
 
 ```toml
 # ~/workspace/myapp/.nameroute.toml
-[[routes]]
-protocol = "http"
-backend = "127.0.0.1:3000"
+key = "myapp"                    # optional; defaults to directory name
+backend_host = "127.0.0.1"       # optional default for protocol sections
+base_domains = ["localhost"]     # optional; overrides daemon [http].base_domains
+
+[http]
+port = 3000
+
+[postgres]
+port = 5432
 ```
+
+`.nameroute.toml` supports shorthand sections for `[http]`, `[https]`, `[postgres]`, `[mysql]`, and `[smtp]`. Section-level settings override top-level defaults. Explicit `[[routes]]` entries are still supported and win over shorthand if they generate the same `protocol/key`.
 
 </details>
 
@@ -311,7 +319,9 @@ protocol = "smtp"
 bind = "0.0.0.0:10025"
 
 [http]
-base_domain = "localhost"  # parent domain for subdomains
+# Deprecated: use base_domains instead. Kept for backward compatibility.
+# base_domain = "localhost"
+base_domains = ["localhost"]  # parent domains for subdomains; first is used in displayed URLs
 
 [smtp]
 mailbox_dir = "/var/lib/name-route/mailbox"

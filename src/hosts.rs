@@ -24,7 +24,7 @@ pub fn disable() {
 }
 
 /// Update /etc/hosts with entries for all HTTP routes in the table.
-pub fn sync(table: &RoutingTable, base_domain: &str) {
+pub fn sync(table: &RoutingTable, global_base_domains: &[String]) {
     if DISABLED.load(Ordering::Relaxed) {
         return;
     }
@@ -36,7 +36,12 @@ pub fn sync(table: &RoutingTable, base_domain: &str) {
         .filter(|((protocol, _), _)| {
             *protocol == ProtocolKind::Http || *protocol == ProtocolKind::Https
         })
-        .map(|((_, key), _)| format!("{}.{}", key, base_domain))
+        .flat_map(|((_, key), backend)| {
+            backend
+                .effective_base_domains(global_base_domains)
+                .iter()
+                .map(move |base_domain| format!("{}.{}", key, base_domain))
+        })
         .collect();
     hostnames.sort();
     hostnames.dedup();

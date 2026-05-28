@@ -45,7 +45,12 @@ bind = "0.0.0.0:8443"
 
 # --- HTTP settings ---
 [http]
-base_domain = "localhost"
+# Deprecated: use base_domains instead. Kept for backward compatibility.
+# base_domain = "localhost"
+
+# Parent domains accepted for HTTP Host and HTTPS SNI routing.
+# The first value is used as the primary domain for displayed URLs.
+base_domains = ["localhost"]
 
 # --- Discovery ---
 # [discovery]

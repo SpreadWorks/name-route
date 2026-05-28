@@ -60,27 +60,14 @@ pub fn ensure_domain(path: &Path, pattern: &str) -> io::Result<bool> {
 /// Ensure the wildcard pattern for a routing key exists in the domains file.
 /// Also ensures the base wildcard pattern (e.g. `*.localhost`) is always present.
 /// Logs a warning with regeneration instructions when a new pattern is added.
-pub fn ensure_domain_for_key(key: &str, base_domain: &str, tls_cert: &str, tls_key: &str) {
+pub fn ensure_domains_for_key(key: &str, base_domains: &[String], tls_cert: &str, tls_key: &str) {
     let path = Path::new(domains_path());
+    let mut added_patterns = Vec::new();
 
-    // Always ensure the base wildcard is present
-    let base_pattern = format!("*.{}", base_domain);
-    let base_added = match ensure_domain(path, &base_pattern) {
-        Ok(added) => added,
-        Err(e) => {
-            tracing::debug!(
-                error = %e,
-                path = %path.display(),
-                "Failed to update domains file (this is expected without root)"
-            );
-            return;
-        }
-    };
-
-    // Ensure the key-specific wildcard pattern
-    let pattern = wildcard_for_key(key, base_domain);
-    let key_added = if pattern != base_pattern {
-        match ensure_domain(path, &pattern) {
+    for base_domain in base_domains {
+        // Always ensure the base wildcard is present
+        let base_pattern = format!("*.{}", base_domain);
+        let base_added = match ensure_domain(path, &base_pattern) {
             Ok(added) => added,
             Err(e) => {
                 tracing::debug!(
@@ -90,13 +77,33 @@ pub fn ensure_domain_for_key(key: &str, base_domain: &str, tls_cert: &str, tls_k
                 );
                 return;
             }
+        };
+        if base_added {
+            added_patterns.push(base_pattern.clone());
         }
-    } else {
-        false
-    };
 
-    if base_added || key_added {
-        let added = if key_added { &pattern } else { &base_pattern };
+        // Ensure the key-specific wildcard pattern
+        let pattern = wildcard_for_key(key, base_domain);
+        if pattern != base_pattern {
+            match ensure_domain(path, &pattern) {
+                Ok(added) => {
+                    if added {
+                        added_patterns.push(pattern);
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        error = %e,
+                        path = %path.display(),
+                        "Failed to update domains file (this is expected without root)"
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
+    if let Some(added) = added_patterns.first() {
         warn!(
             pattern = %added,
             "New domain pattern added to {}. Regenerate certificate:\n  \

@@ -114,7 +114,7 @@ pub fn validate_key(key: &str) -> Result<(), String> {
 
 pub struct ControlServerConfig {
     pub port: u16,
-    pub base_domain: String,
+    pub base_domains: Vec<String>,
     pub tls_cert: String,
     pub tls_key: String,
     pub listener_ports: HashMap<ProtocolKind, u16>,
@@ -152,12 +152,12 @@ pub async fn run_control_server(
                     Ok((stream, _)) => {
                         let table = table.clone();
                         let health_map = health_map.clone();
-                        let base_domain = cfg.base_domain.clone();
+                        let base_domains = cfg.base_domains.clone();
                         let tls_cert = cfg.tls_cert.clone();
                         let tls_key = cfg.tls_key.clone();
                         let listener_ports = cfg.listener_ports.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, table, health_map, &base_domain, &tls_cert, &tls_key, &listener_ports).await {
+                            if let Err(e) = handle_connection(stream, table, health_map, &base_domains, &tls_cert, &tls_key, &listener_ports).await {
                                 warn!(error = %e, "Management connection error");
                             }
                         });
@@ -177,7 +177,7 @@ async fn handle_connection(
     stream: TcpStream,
     table: SharedRoutingTable,
     health_map: SharedHealthMap,
-    base_domain: &str,
+    base_domains: &[String],
     tls_cert: &str,
     tls_key: &str,
     listener_ports: &HashMap<ProtocolKind, u16>,
@@ -201,7 +201,7 @@ async fn handle_connection(
                     req,
                     &table,
                     &health_map,
-                    base_domain,
+                    base_domains,
                     tls_cert,
                     tls_key,
                     listener_ports,
@@ -223,7 +223,7 @@ async fn handle_request(
     req: Request,
     table: &SharedRoutingTable,
     health_map: &SharedHealthMap,
-    base_domain: &str,
+    base_domains: &[String],
     tls_cert: &str,
     tls_key: &str,
     listener_ports: &HashMap<ProtocolKind, u16>,
@@ -250,6 +250,7 @@ async fn handle_request(
                 addrs: vec![host],
                 port,
                 tls_mode: tls_mode.unwrap_or(TlsMode::Passthrough),
+                base_domains: Vec::new(),
             };
 
             {
@@ -260,15 +261,15 @@ async fn handle_request(
             // Sync /etc/hosts for HTTP/HTTPS routes
             if protocol == ProtocolKind::Http || protocol == ProtocolKind::Https {
                 let t = table.read().await;
-                hosts::sync(&t, base_domain);
+                hosts::sync(&t, base_domains);
             }
 
             // Ensure wildcard domain pattern for HTTPS terminate mode
             if protocol == ProtocolKind::Https {
-                domains::ensure_domain_for_key(&key, base_domain, tls_cert, tls_key);
+                domains::ensure_domains_for_key(&key, base_domains, tls_cert, tls_key);
             }
 
-            let url = build_url(protocol, &key, base_domain, listener_ports);
+            let url = build_url(protocol, &key, base_domains, listener_ports);
             info!(protocol = %protocol, key = %key, backend = %backend, "Route added via control socket");
             Response {
                 ok: true,
@@ -290,7 +291,7 @@ async fn handle_request(
             if removed {
                 if protocol == ProtocolKind::Http || protocol == ProtocolKind::Https {
                     let t = table.read().await;
-                    hosts::sync(&t, base_domain);
+                    hosts::sync(&t, base_domains);
                 }
                 info!(protocol = %protocol, key = %key, "Route removed via control socket");
                 Response::ok()
@@ -318,7 +319,8 @@ async fn handle_request(
                         HealthStatus::Healthy => "healthy".to_string(),
                         HealthStatus::Unhealthy => "unhealthy".to_string(),
                     });
-                    let url = build_url(*protocol, key, base_domain, listener_ports);
+                    let domains = backend.effective_base_domains(base_domains);
+                    let url = build_url(*protocol, key, domains, listener_ports);
                     RouteEntry {
                         protocol: *protocol,
                         key: key.clone(),
@@ -344,9 +346,10 @@ async fn handle_request(
 fn build_url(
     protocol: ProtocolKind,
     key: &str,
-    base_domain: &str,
+    base_domains: &[String],
     listener_ports: &HashMap<ProtocolKind, u16>,
 ) -> Option<String> {
+    let base_domain = base_domains.first()?;
     match protocol {
         ProtocolKind::Http => listener_ports
             .get(&ProtocolKind::Http)

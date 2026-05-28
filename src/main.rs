@@ -313,6 +313,7 @@ async fn run_server(
                 addrs: vec![addr],
                 port,
                 tls_mode: route.tls_mode.unwrap_or(TlsMode::Passthrough),
+                base_domains: route.base_domains.clone().unwrap_or_default(),
             };
 
             let collision = table.insert(route.protocol, route.key.clone(), backend);
@@ -326,9 +327,14 @@ async fn run_server(
 
             // Ensure wildcard domain pattern for HTTPS routes
             if route.protocol == ProtocolKind::Https {
-                domains::ensure_domain_for_key(
+                let base_domains = if route.base_domains.as_ref().is_some_and(|v| !v.is_empty()) {
+                    route.base_domains.clone().unwrap_or_default()
+                } else {
+                    config.http.effective_base_domains()
+                };
+                domains::ensure_domains_for_key(
                     &route.key,
-                    &config.http.base_domain,
+                    &base_domains,
                     config.tls.cert.as_deref().unwrap_or_default(),
                     config.tls.key.as_deref().unwrap_or_default(),
                 );
@@ -360,9 +366,11 @@ async fn run_server(
                 table.insert(*protocol, key.clone(), backend.clone());
 
                 if *protocol == ProtocolKind::Https {
-                    domains::ensure_domain_for_key(
+                    let global_base_domains = config.http.effective_base_domains();
+                    let base_domains = backend.effective_base_domains(&global_base_domains);
+                    domains::ensure_domains_for_key(
                         key,
-                        &config.http.base_domain,
+                        base_domains,
                         config.tls.cert.as_deref().unwrap_or_default(),
                         config.tls.key.as_deref().unwrap_or_default(),
                     );
@@ -403,9 +411,12 @@ async fn run_server(
                             table.insert(*protocol, key.clone(), backend.clone());
 
                             if *protocol == ProtocolKind::Https {
-                                domains::ensure_domain_for_key(
+                                let global_base_domains = config.http.effective_base_domains();
+                                let base_domains =
+                                    backend.effective_base_domains(&global_base_domains);
+                                domains::ensure_domains_for_key(
                                     key,
-                                    &config.http.base_domain,
+                                    base_domains,
                                     config.tls.cert.as_deref().unwrap_or_default(),
                                     config.tls.key.as_deref().unwrap_or_default(),
                                 );
@@ -452,7 +463,7 @@ async fn run_server(
     // Update /etc/hosts with HTTP route entries (root only)
     if is_root {
         let table = routing_table.read().await;
-        hosts::sync(&table, &config.http.base_domain);
+        hosts::sync(&table, &config.http.effective_base_domains());
     }
 
     // Spawn signal handler
@@ -469,7 +480,7 @@ async fn run_server(
     {
         let ctrl_table = routing_table.clone();
         let ctrl_health_map = health_map.clone();
-        let ctrl_base_domain = config.http.base_domain.clone();
+        let ctrl_base_domains = config.http.effective_base_domains();
         let ctrl_tls_cert = config.tls.cert.clone().unwrap_or_default();
         let ctrl_tls_key = config.tls.key.clone().unwrap_or_default();
         let mut listener_ports: HashMap<ProtocolKind, u16> = HashMap::new();
@@ -485,7 +496,7 @@ async fn run_server(
             control::run_control_server(
                 control::ControlServerConfig {
                     port: mgmt_port,
-                    base_domain: ctrl_base_domain,
+                    base_domains: ctrl_base_domains,
                     tls_cert: ctrl_tls_cert,
                     tls_key: ctrl_tls_key,
                     listener_ports,

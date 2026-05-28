@@ -199,27 +199,29 @@ docker compose up -d
 
 ```toml
 # ~/workspace/blog/.nameroute.toml
-[[routes]]
-protocol = "http"
-key = "blog"
-backend = "127.0.0.1:3000"
+key = "blog"                    # optional。省略時はディレクトリ名
+backend_host = "127.0.0.1"      # optional。protocol section の port と組み合わせて使う
+base_domains = ["localhost"]    # optional。このプロジェクトの route-level domain
+
+[http]
+port = 3000
 ```
 
 ```toml
 # ~/workspace/shop/.nameroute.toml
-[[routes]]
-protocol = "http"
-key = "shop"
-backend = "127.0.0.1:3001"
+[http]
+port = 3001
 ```
 
 ```toml
 # ~/workspace/api-server/.nameroute.toml
-[[routes]]
-protocol = "http"
 key = "api"
-backend = "127.0.0.1:8000"
+
+[http]
+port = 8000
 ```
+
+省略記法として `[http]`, `[https]`, `[postgres]`, `[mysql]`, `[smtp]` を指定できます。各 section には `port`、または完全な backend address として `backend = "127.0.0.1:3000"` を指定できます。section-level の `key`, `backend_host`, `base_domains`, `tls_mode` は top-level default を上書きします。従来の `[[routes]]` も引き続き使え、同じ `protocol/key` を生成した場合は明示的な `[[routes]]` が優先されます。
 
 daemon の設定:
 

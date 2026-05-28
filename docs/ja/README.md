@@ -211,10 +211,18 @@ Discovery を有効にすると、各プロジェクトに置いた `.nameroute.
 
 ```toml
 # ~/workspace/myapp/.nameroute.toml
-[[routes]]
-protocol = "http"
-backend = "127.0.0.1:3000"
+key = "myapp"                    # optional。省略時はディレクトリ名
+backend_host = "127.0.0.1"       # protocol section 用の optional default
+base_domains = ["localhost"]     # optional。daemon の [http].base_domains を上書き
+
+[http]
+port = 3000
+
+[postgres]
+port = 5432
 ```
+
+`.nameroute.toml` は `[http]`, `[https]`, `[postgres]`, `[mysql]`, `[smtp]` の省略記法に対応しています。section-level の設定は top-level default を上書きします。従来の `[[routes]]` も引き続き利用でき、同じ `protocol/key` を生成した場合は省略記法より優先されます。
 
 </details>
 
@@ -314,7 +322,9 @@ protocol = "smtp"
 bind = "0.0.0.0:10025"
 
 [http]
-base_domain = "localhost"  # サブドメインの親ドメイン
+# Deprecated: use base_domains instead. Kept for backward compatibility.
+# base_domain = "localhost"
+base_domains = ["localhost"]  # サブドメインの親ドメイン。先頭が表示URLに使われます
 
 [smtp]
 mailbox_dir = "/var/lib/name-route/mailbox"

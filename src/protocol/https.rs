@@ -9,7 +9,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::{Config, TlsConfig};
 use crate::error::Result;
-use crate::protocol::http::{self, extract_subdomain, send_html_response};
+use crate::protocol::http::{self, resolve_backend_for_host, send_html_response};
 
 /// HTML-escape a string to prevent XSS when interpolating into HTML.
 fn html_escape(s: &str) -> String {
@@ -74,27 +74,21 @@ impl ProtocolHandler for HttpsHandler {
             };
         debug!(peer = %peer, sni = %server_name, "SNI extracted");
 
-        // 2. Extract subdomain from SNI
-        let base_domain = &config.http.base_domain;
-        let key = extract_subdomain(&server_name, base_domain);
-
-        let key = match key {
-            Some(k) if !k.is_empty() => k,
-            _ => {
-                debug!(peer = %peer, sni = %server_name, "No subdomain in SNI");
-                return Ok(());
-            }
-        };
-
-        // 3. Lookup in routing table
+        // 2. Resolve SNI against global and route-level base domains
+        let global_base_domains = config.http.effective_base_domains();
         let table = self.routing_table.read().await;
-        let backend = table.lookup(ProtocolKind::Https, &key).cloned();
+        let resolved = resolve_backend_for_host(
+            &table,
+            ProtocolKind::Https,
+            &server_name,
+            &global_base_domains,
+        );
         drop(table);
 
-        let backend = match backend {
-            Some(b) => b,
+        let (key, backend) = match resolved {
+            Some(route) => route,
             None => {
-                info!(peer = %peer, key = %key, "HTTPS backend not found");
+                info!(peer = %peer, sni = %server_name, "HTTPS backend not found");
                 return Ok(());
             }
         };
@@ -260,7 +254,7 @@ that matches <code>{sni}</code>. Please contact the server administrator.</p>
                     &self.routing_table,
                     &self.config_rx,
                     ProtocolKind::Https,
-                    Some(&key),
+                    Some(&server_name),
                 )
                 .await?;
             }

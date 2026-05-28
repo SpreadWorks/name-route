@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-05-28
+
+### Added
+
+- Added `[http].base_domains` for accepting multiple HTTP Host / HTTPS SNI parent domains. The first domain is used for displayed URLs.
+- Added route-level `base_domains` for static routes and project discovery routes.
+- Added shorthand `.nameroute.toml` project configuration with top-level defaults and `[http]`, `[https]`, `[postgres]`, `[mysql]`, and `[smtp]` sections.
+- Added separate draft and publish release scripts so draft assets can be tested before publishing.
+
+### Changed
+
+- `base_domain` is now deprecated in favor of `base_domains`, but remains supported for backward compatibility.
+- HTTP/HTTPS routing, `/etc/hosts` management, and TLS domain file generation now respect global and route-level base domains.
+- Explicit `[[routes]]` entries in `.nameroute.toml` now act as an override when shorthand sections generate the same `protocol/key`.
+- `scripts/release.sh` is now a deprecated guard that points to `draft_release.sh` and `publish_release.sh`.
+
 ## [0.3.0] - 2026-03-26
 
 ### Changed
@@ -58,3 +74,4 @@ name-route is a local TCP L7 router for development environments. Instead of man
 [0.2.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.2.0
 [0.1.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.1.0
 [0.3.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.3.0
+[0.4.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.4.0

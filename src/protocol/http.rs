@@ -13,7 +13,7 @@ use crate::error::Result;
 use crate::protocol::ProtocolHandler;
 use crate::protocol::ProtocolKind;
 use crate::proxy;
-use crate::router::SharedRoutingTable;
+use crate::router::{Backend, RoutingTable, SharedRoutingTable};
 
 const MAX_HEADER_SIZE: usize = 8192;
 
@@ -49,7 +49,7 @@ impl ProtocolHandler for HttpHandler {
 /// `protocol_kind` determines which protocol to use for routing table lookup
 /// (Http for plain HTTP, Https for TLS-terminated HTTPS).
 /// `expected_key` is set for HTTPS terminate mode to verify the Host header matches
-/// the SNI-derived key, preventing host header attacks.
+/// the SNI hostname, preventing host header attacks.
 pub(crate) async fn handle_http_stream<S>(
     client: S,
     peer: SocketAddr,
@@ -64,7 +64,7 @@ where
     debug!(peer = %peer, "New HTTP connection");
 
     let config = config_rx.borrow().clone();
-    let base_domain = &config.http.base_domain;
+    let global_base_domains = config.http.effective_base_domains();
     let handshake_timeout = Duration::from_secs(config.backend.idle_timeout);
 
     // Read request line + headers into buffer until \r\n\r\n
@@ -140,29 +140,26 @@ where
         }
     };
 
-    // Extract subdomain from Host header
     let host_no_port = host.split(':').next().unwrap_or(host);
-    let key = extract_subdomain(host_no_port, base_domain);
-
-    let key = match key {
-        Some(k) if !k.is_empty() => k,
-        _ => {
-            send_response(
-                buf_reader.get_mut(),
-                404,
-                "Not Found",
-                "No subdomain specified",
-            )
-            .await?;
-            return Ok(());
-        }
-    };
+    if global_base_domains
+        .iter()
+        .any(|domain| host_no_port.eq_ignore_ascii_case(domain))
+    {
+        send_response(
+            buf_reader.get_mut(),
+            404,
+            "Not Found",
+            "No subdomain specified",
+        )
+        .await?;
+        return Ok(());
+    }
 
     // In HTTPS terminate mode, verify the Host header matches the SNI-derived key
     // to prevent host header attacks that could route to unintended backends.
     if let Some(expected) = expected_key {
-        if key != expected {
-            info!(peer = %peer, host_key = %key, sni_key = %expected, "Host header does not match SNI");
+        if !host_no_port.eq_ignore_ascii_case(expected) {
+            info!(peer = %peer, host = %host_no_port, sni = %expected, "Host header does not match SNI");
             send_response(
                 buf_reader.get_mut(),
                 421,
@@ -174,22 +171,20 @@ where
         }
     }
 
-    debug!(peer = %peer, key = %key, host = %host, "HTTP routing lookup");
-
-    // Lookup in routing table
     let table = routing_table.read().await;
-    let backend = table.lookup(protocol_kind, &key).cloned();
+    let resolved =
+        resolve_backend_for_host(&table, protocol_kind, host_no_port, &global_base_domains);
     drop(table);
 
-    let backend = match backend {
-        Some(b) => b,
+    let (key, backend) = match resolved {
+        Some(route) => route,
         None => {
-            info!(peer = %peer, key = %key, "HTTP backend not found");
+            info!(peer = %peer, host = %host_no_port, "HTTP backend not found");
             send_response(
                 buf_reader.get_mut(),
                 502,
                 "Bad Gateway",
-                &format!("No backend for '{}'", key),
+                &format!("No backend for '{}'", host_no_port),
             )
             .await?;
             return Ok(());
@@ -259,6 +254,32 @@ pub(crate) fn extract_subdomain(host: &str, base_domain: &str) -> Option<String>
     }
 }
 
+pub(crate) fn extract_subdomain_from_domains(
+    host: &str,
+    base_domains: &[String],
+) -> Option<String> {
+    base_domains
+        .iter()
+        .find_map(|base_domain| extract_subdomain(host, base_domain))
+}
+
+pub(crate) fn resolve_backend_for_host(
+    table: &RoutingTable,
+    protocol: ProtocolKind,
+    host: &str,
+    global_base_domains: &[String],
+) -> Option<(String, Backend)> {
+    table
+        .entries()
+        .filter(|((route_protocol, _), _)| *route_protocol == protocol)
+        .find_map(|((_, key), backend)| {
+            let domains = backend.effective_base_domains(global_base_domains);
+            extract_subdomain_from_domains(host, domains)
+                .filter(|host_key| host_key == key)
+                .map(|_| (key.clone(), backend.clone()))
+        })
+}
+
 pub(crate) async fn send_html_response<S: AsyncWrite + Unpin>(
     stream: &mut S,
     status: u16,
@@ -296,6 +317,18 @@ async fn send_response<S: AsyncWrite + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn make_backend(base_domains: Vec<String>) -> Backend {
+        Backend {
+            source: "test".to_string(),
+            container_name: "myapp".to_string(),
+            addrs: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            port: 3000,
+            tls_mode: crate::protocol::TlsMode::Passthrough,
+            base_domains,
+        }
+    }
 
     #[test]
     fn test_extract_subdomain() {
@@ -326,6 +359,42 @@ mod tests {
             Some("app".to_string())
         );
         assert_eq!(extract_subdomain("mysite.local", "mysite.local"), None);
+    }
+
+    #[test]
+    fn test_extract_subdomain_from_multiple_domains() {
+        let domains = vec!["localhost".to_string(), "test".to_string()];
+        assert_eq!(
+            extract_subdomain_from_domains("app.test", &domains),
+            Some("app".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_backend_for_route_level_domain() {
+        let mut table = RoutingTable::new();
+        table.insert(
+            ProtocolKind::Http,
+            "myapp".to_string(),
+            make_backend(vec!["project.test".to_string()]),
+        );
+
+        let global_domains = vec!["localhost".to_string()];
+        let resolved = resolve_backend_for_host(
+            &table,
+            ProtocolKind::Http,
+            "myapp.project.test",
+            &global_domains,
+        );
+
+        assert_eq!(resolved.map(|(key, _)| key), Some("myapp".to_string()));
+        assert!(resolve_backend_for_host(
+            &table,
+            ProtocolKind::Http,
+            "myapp.localhost",
+            &global_domains
+        )
+        .is_none());
     }
 
     // ---- Scenario tests: real-world HTTP routing ----
