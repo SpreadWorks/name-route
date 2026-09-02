@@ -35,6 +35,21 @@ pub enum Request {
         protocol: ProtocolKind,
         key: String,
     },
+    /// Atomically reserve every key for one `nameroute run` invocation.
+    RunRegister {
+        protocol: ProtocolKind,
+        keys: Vec<String>,
+        backend: String,
+        #[serde(default)]
+        tls_mode: Option<TlsMode>,
+        owner: String,
+    },
+    /// Delete only entries which are still owned by this run invocation.
+    RunCleanup {
+        protocol: ProtocolKind,
+        keys: Vec<String>,
+        owner: String,
+    },
     ListRoutes,
 }
 
@@ -55,6 +70,8 @@ pub struct RouteEntry {
     pub key: String,
     pub backend: String,
     pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_mode: Option<TlsMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,7 +262,10 @@ async fn handle_request(
             };
 
             let backend_entry = Backend {
+                // Keep the legacy dynamic-add source label for compatibility;
+                // its missing owner still protects it from run cleanup.
                 source: "run".to_string(),
+                owner: None,
                 container_name: key.clone(),
                 addrs: vec![host],
                 port,
@@ -277,6 +297,123 @@ async fn handle_request(
                 routes: None,
                 url,
             }
+        }
+        Request::RunRegister {
+            protocol,
+            keys,
+            backend,
+            tls_mode,
+            owner,
+        } => {
+            if owner.is_empty() {
+                return Response::error("run owner must not be empty");
+            }
+            if keys.is_empty() {
+                return Response::error("at least one route key is required");
+            }
+            let (host, port) = match parse_backend(&backend) {
+                Ok(v) => v,
+                Err(e) => return Response::error(e),
+            };
+            let mut normalized = Vec::with_capacity(keys.len());
+            for key in keys {
+                if let Err(e) = validate_key(&key) {
+                    return Response::error(e);
+                }
+                let key = key.to_lowercase();
+                if normalized.contains(&key) {
+                    return Response::error(format!("duplicate route key: {}", key));
+                }
+                normalized.push(key);
+            }
+
+            // Check all conflicts while holding the write lock, then insert all
+            // entries.  This makes aliases an all-or-nothing reservation.
+            {
+                let mut t = table.write().await;
+                // Cleanup can arrive on another connection before a delayed
+                // register response/request. A tombstoned owner is an
+                // idempotent successful no-op, never a route resurrection.
+                if t.run_owner_was_cleaned(&owner) {
+                    info!(protocol = %protocol, keys = ?normalized, owner = %owner, "Ignoring late run registration after cleanup");
+                    return Response::ok();
+                }
+                if let Some(key) = normalized
+                    .iter()
+                    .find(|key| t.lookup(protocol, key).is_some())
+                {
+                    return Response::error(format!("route already exists: {}:{}", protocol, key));
+                }
+                for key in &normalized {
+                    t.insert(
+                        protocol,
+                        key.clone(),
+                        Backend {
+                            source: "run".to_string(),
+                            owner: Some(owner.clone()),
+                            container_name: key.clone(),
+                            addrs: vec![host],
+                            port,
+                            tls_mode: tls_mode.unwrap_or(TlsMode::Passthrough),
+                            base_domains: Vec::new(),
+                        },
+                    );
+                }
+            }
+            if protocol == ProtocolKind::Http || protocol == ProtocolKind::Https {
+                let t = table.read().await;
+                hosts::sync(&t, base_domains);
+            }
+            if protocol == ProtocolKind::Https {
+                for key in &normalized {
+                    domains::ensure_domains_for_key(key, base_domains, tls_cert, tls_key);
+                }
+            }
+            let url = build_url(protocol, &normalized[0], base_domains, listener_ports);
+            info!(protocol = %protocol, keys = ?normalized, owner = %owner, "Routes registered for run");
+            Response {
+                ok: true,
+                error: None,
+                routes: None,
+                url,
+            }
+        }
+        Request::RunCleanup {
+            protocol,
+            keys,
+            owner,
+        } => {
+            if owner.is_empty() {
+                return Response::error("run owner must not be empty");
+            }
+            if keys.is_empty() {
+                return Response::error("at least one route key is required");
+            }
+            let mut normalized = Vec::with_capacity(keys.len());
+            for key in keys {
+                if let Err(e) = validate_key(&key) {
+                    return Response::error(e);
+                }
+                let key = key.to_lowercase();
+                if normalized.contains(&key) {
+                    return Response::error(format!("duplicate route key: {}", key));
+                }
+                normalized.push(key);
+            }
+            let mut removed = false;
+            {
+                let mut t = table.write().await;
+                t.mark_run_owner_cleaned(owner.clone());
+                for key in &normalized {
+                    removed |= t.remove_if_owner(protocol, key, &owner);
+                }
+            }
+            if removed && (protocol == ProtocolKind::Http || protocol == ProtocolKind::Https) {
+                let t = table.read().await;
+                hosts::sync(&t, base_domains);
+            }
+            // A replacement or manual route is intentionally a successful no-op.
+            Response::ok()
         }
         Request::RemoveRoute { protocol, key } => {
             if let Err(e) = validate_key(&key) {
@@ -326,6 +463,7 @@ async fn handle_request(
                         key: key.clone(),
                         backend: addr,
                         source: backend.source.clone(),
+                        owner: backend.owner.clone(),
                         tls_mode,
                         health,
                         url,
@@ -415,6 +553,165 @@ pub async fn send_request(port: u16, req: &Request) -> Result<Response, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn run_registration_is_atomic_and_cleanup_is_owner_scoped() {
+        let table = crate::router::new_shared_routing_table();
+        let health = crate::router::new_shared_health_map();
+        let ports = HashMap::new();
+        let response = handle_request(
+            Request::RunRegister {
+                protocol: ProtocolKind::Postgres,
+                keys: vec!["primary".to_string(), "alias".to_string()],
+                backend: "127.0.0.1:5432".to_string(),
+                tls_mode: None,
+                owner: "first".to_string(),
+            },
+            &table,
+            &health,
+            &[],
+            "",
+            "",
+            &ports,
+        )
+        .await;
+        assert!(response.ok);
+        assert_eq!(table.read().await.len(), 2);
+
+        let response = handle_request(
+            Request::RunRegister {
+                protocol: ProtocolKind::Postgres,
+                keys: vec!["new".to_string(), "alias".to_string()],
+                backend: "127.0.0.1:5433".to_string(),
+                tls_mode: None,
+                owner: "second".to_string(),
+            },
+            &table,
+            &health,
+            &[],
+            "",
+            "",
+            &ports,
+        )
+        .await;
+        assert!(!response.ok);
+        assert_eq!(table.read().await.len(), 2, "conflict must not add 'new'");
+
+        // A replacement made by a later/manual writer survives old cleanup.
+        let mut replacement = table
+            .read()
+            .await
+            .lookup(ProtocolKind::Postgres, "primary")
+            .unwrap()
+            .clone();
+        replacement.source = "run".to_string();
+        replacement.owner = None;
+        table
+            .write()
+            .await
+            .insert(ProtocolKind::Postgres, "primary".to_string(), replacement);
+        let response = handle_request(
+            Request::RunCleanup {
+                protocol: ProtocolKind::Postgres,
+                keys: vec!["primary".to_string(), "alias".to_string()],
+                owner: "first".to_string(),
+            },
+            &table,
+            &health,
+            &[],
+            "",
+            "",
+            &ports,
+        )
+        .await;
+        assert!(response.ok);
+        {
+            let table_read = table.read().await;
+            assert!(table_read
+                .lookup(ProtocolKind::Postgres, "primary")
+                .is_some());
+            assert!(table_read.lookup(ProtocolKind::Postgres, "alias").is_none());
+        }
+
+        let invalid_cleanup = handle_request(
+            Request::RunCleanup {
+                protocol: ProtocolKind::Postgres,
+                keys: vec!["primary".to_string(), "PRIMARY".to_string()],
+                owner: "".to_string(),
+            },
+            &table,
+            &health,
+            &[],
+            "",
+            "",
+            &ports,
+        )
+        .await;
+        assert!(!invalid_cleanup.ok);
+    }
+
+    #[tokio::test]
+    async fn cleanup_before_delayed_register_does_not_resurrect_routes() {
+        let table = crate::router::new_shared_routing_table();
+        let health = crate::router::new_shared_health_map();
+        let ports = HashMap::new();
+        let cleanup = handle_request(
+            Request::RunCleanup {
+                protocol: ProtocolKind::Postgres,
+                keys: vec!["late-app".to_string()],
+                owner: "delayed-owner".to_string(),
+            },
+            &table,
+            &health,
+            &[],
+            "",
+            "",
+            &ports,
+        )
+        .await;
+        assert!(cleanup.ok);
+        // Tombstones are daemon-lifetime state: subsequent completed runs may
+        // not evict this owner and allow its delayed request to resurrect.
+        for number in 0..5000 {
+            let response = handle_request(
+                Request::RunCleanup {
+                    protocol: ProtocolKind::Postgres,
+                    keys: vec![format!("later-{number}")],
+                    owner: format!("later-owner-{number}"),
+                },
+                &table,
+                &health,
+                &[],
+                "",
+                "",
+                &ports,
+            )
+            .await;
+            assert!(response.ok);
+        }
+        let register = handle_request(
+            Request::RunRegister {
+                protocol: ProtocolKind::Postgres,
+                keys: vec!["late-app".to_string()],
+                backend: "127.0.0.1:5432".to_string(),
+                tls_mode: None,
+                owner: "delayed-owner".to_string(),
+            },
+            &table,
+            &health,
+            &[],
+            "",
+            "",
+            &ports,
+        )
+        .await;
+        assert!(register.ok, "late registration is an idempotent no-op");
+        assert!(table
+            .read()
+            .await
+            .lookup(ProtocolKind::Postgres, "late-app")
+            .is_none());
+    }
 
     #[test]
     fn test_validate_key_valid() {

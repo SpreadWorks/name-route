@@ -223,6 +223,7 @@ fn parse_project_config(
 
         let backend = Backend {
             source: "discovery".to_string(),
+            owner: None,
             container_name: key.clone(),
             addrs: vec![addr],
             port,
@@ -297,6 +298,7 @@ fn append_protocol_route(
 
     let backend = Backend {
         source: "discovery".to_string(),
+        owner: None,
         container_name: key.clone(),
         addrs: vec![addr],
         port,
@@ -349,12 +351,11 @@ pub async fn polling_loop(
                 let mut table = routing_table.write().await;
                 // Remove old discovery routes
                 table.remove_by_source("discovery");
-                // Insert new discovery routes, skipping if static already owns the key
+                // Preserve routes owned by static config, Docker, manual add,
+                // or an active `run` session.
                 for ((protocol, key), backend) in discovery_table.entries() {
-                    if let Some(existing) = table.lookup(*protocol, key) {
-                        if existing.source == "static" {
-                            continue;
-                        }
+                    if table.lookup(*protocol, key).is_some() {
+                        continue;
                     }
                     table.insert(*protocol, key.clone(), backend.clone());
 

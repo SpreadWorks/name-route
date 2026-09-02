@@ -322,6 +322,7 @@ mod tests {
     fn make_backend(base_domains: Vec<String>) -> Backend {
         Backend {
             source: "test".to_string(),
+            owner: None,
             container_name: "myapp".to_string(),
             addrs: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
             port: 3000,

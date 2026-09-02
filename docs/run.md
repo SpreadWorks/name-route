@@ -11,6 +11,19 @@
 nameroute run <protocol> <key> -- <command...>
 ```
 
+### Aliases
+
+Repeat `--alias` to expose the same child and backend port under additional
+route keys. The keys are reserved atomically: a conflict leaves no partial
+aliases behind.
+
+```bash
+nameroute run http app --alias api --alias admin -- next dev
+```
+
+All of these routes are owned by this invocation and are removed together when
+it exits. A later manual or discovered route is never removed by stale cleanup.
+
 ```bash
 # Start a Next.js dev server
 nameroute run http myapp -- next dev
@@ -75,6 +88,26 @@ https://localhost:<port>
 ### FORCE_COLOR
 
 In `--detect-port` mode, stdout/stderr are piped, which may cause child processes to disable colored output. nameroute automatically sets `FORCE_COLOR=1` to preserve colors.
+
+## Shutdown behavior
+
+On Linux and macOS, the child runs in its own process group. SIGINT and SIGTERM
+received by `nameroute run` are forwarded to that group; after a short grace
+period an unresponsive group is killed. Route cleanup is owner-scoped and has a
+timeout, so cleanup cannot accidentally remove a replacement route or wait
+forever. A port listener is held until immediately before spawning the child;
+passing an arbitrary listener to every possible child command is not portable,
+so the final bind-to-exec interval cannot be reserved completely.
+
+For correctness across delayed management connections, the daemon retains a
+small owner UUID tombstone for each completed `run` until the daemon restarts.
+This makes a late registration a no-op rather than resurrecting a route; memory
+therefore grows with completed runs and is reclaimed on daemon restart.
+
+Descendants that deliberately leave the managed process group or create a new
+session are outside this guarantee. When run interactively, terminal ownership
+is handed to the child group and restored before route cleanup. A background
+`nameroute run ... &` job does not take terminal ownership from the shell.
 
 
 ## HTTPS with --tls-mode

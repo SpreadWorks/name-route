@@ -144,6 +144,7 @@ pub async fn poll_once(docker: &Docker) -> crate::error::Result<RoutingTable> {
 
             let backend = Backend {
                 source: "docker".to_string(),
+                owner: None,
                 container_name: container_name.clone(),
                 addrs: addrs.clone(),
                 port,
@@ -218,12 +219,11 @@ pub async fn polling_loop(
                         let mut table = routing_table.write().await;
                         // Remove old Docker routes
                         table.remove_by_source("docker");
-                        // Insert new Docker routes, skipping if static or discovery already owns the key
+                        // Preserve routes owned by static config, discovery,
+                        // manual add, or an active `run` session.
                         for ((protocol, key), backend) in docker_table.entries() {
-                            if let Some(existing) = table.lookup(*protocol, key) {
-                                if existing.source == "static" || existing.source == "discovery" {
-                                    continue;
-                                }
+                            if table.lookup(*protocol, key).is_some() {
+                                continue;
                             }
                             table.insert(*protocol, key.clone(), backend.clone());
 

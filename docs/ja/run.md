@@ -11,6 +11,16 @@
 nameroute run <protocol> <key> -- <command...>
 ```
 
+### エイリアス
+
+`--alias` は繰り返し指定でき、同じ子プロセス・同じバックエンドポートを複数の route key で公開します。全 key は原子的に予約されるため、競合時に一部だけ登録されることはありません。
+
+```bash
+nameroute run http app --alias api --alias admin -- next dev
+```
+
+これらの route はこの起動だけの owner に紐付き、終了時にまとめて削除されます。後から追加された手動・検出 route を古い cleanup が削除することはありません。
+
 ```bash
 # Next.js の開発サーバーを起動
 nameroute run http myapp -- next dev
@@ -90,9 +100,15 @@ daemon の設定ファイルに `[tls]` セクション（証明書・鍵のパ�
 `--tls-mode` を省略すると passthrough モードになり、バックエンド自身が TLS を処理する必要があります。
 
 
-## Signal handling
+## Shutdown behavior
 
-Ctrl+C を押すと、nameroute は子プロセスに SIGINT を転送します。これは通常の Ctrl+C と同じ挙動のため、Node.js や Python などの開発サーバーが graceful shutdown を正しく行えます。子プロセスが終了した後、nameroute は daemon からルートを自動削除します。
+Linux/macOS では子プロセスを専用 process group で管理します。`nameroute run` が受けた SIGINT/SIGTERM は同じ種類でその group に送られ、猶予時間を超えて残るプロセスは SIGKILL で終了します。route cleanup には timeout があり、owner 一致時だけを削除するため、置換済み route を削除したり無期限待機したりしません。
+
+TTY を使う場合は子 group を foreground に渡し、終了後は cleanup より前に呼出元の process group へ戻します。空き port 用 listener は spawn 直前まで保持しますが、任意の子コマンドへ listener FD を移譲する方法は移植性がないため、最後の bind-to-exec 区間を完全に予約することはできません。
+
+遅延した management 接続で route が復活しないよう、daemon は終了済み `run` の owner UUID tombstone を daemon 再起動まで保持します。これにより遅延 register は no-op になります。メモリは完了した run 数に応じて増え、daemon 再起動時に解放されます。
+
+明示的に別の process group や session へ離脱した子孫は、この停止保証の対象外です。対話実行時だけ child group へ terminal を渡し、background の `nameroute run ... &` は shell から terminal を奪いません。
 
 
 ## package.json example
