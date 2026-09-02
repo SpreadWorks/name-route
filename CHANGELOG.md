@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-09-02
+
+### Added
+
+- Added repeatable `nameroute run --alias` routes so one child process and dynamically allocated port can serve multiple route keys atomically.
+- Added Linux and macOS CI coverage for the Rust test suite.
+
+### Changed
+
+- `nameroute run` now manages the child process group, forwards SIGINT/SIGTERM, escalates unresponsive shutdowns to SIGKILL, and bounds control/output cleanup waits.
+- Run routes now use invocation-specific ownership so stale cleanup cannot delete replacement routes.
+- Docker and project discovery polling now preserve routes owned by active run sessions and manual additions.
+
+### Fixed
+
+- Routes are cleaned up when the child executable is missing, is not executable, or exits with an error.
+- Direct SIGTERM no longer leaves run routes or managed child processes behind.
+- Atomic registration and daemon-lifetime owner tombstones prevent partial aliases and delayed registration from resurrecting cleaned routes.
+- Detect-port mode now serializes stdout/stderr candidates and safely handles short-lived children and inherited output pipes.
+- Interactive terminal ownership is restored before cleanup, while background run jobs no longer seize the shell terminal.
+
 ## [0.4.0] - 2026-05-28
 
 ### Added
@@ -75,3 +96,4 @@ name-route is a local TCP L7 router for development environments. Instead of man
 [0.1.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.1.0
 [0.3.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.3.0
 [0.4.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.4.0
+[0.5.0]: https://github.com/SpreadWorks/name-route/releases/tag/v0.5.0
