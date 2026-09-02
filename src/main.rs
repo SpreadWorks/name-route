@@ -89,6 +89,9 @@ enum Commands {
         protocol: ProtocolKind,
         /// Routing key
         key: String,
+        /// Additional routing keys pointing to the same child and port
+        #[arg(long = "alias")]
+        aliases: Vec<String>,
         /// Detect port from stdout/stderr instead of allocating one
         #[arg(long)]
         detect_port: bool,
@@ -220,6 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Run {
             protocol,
             key,
+            aliases,
             detect_port,
             port_env,
             tls_mode,
@@ -229,6 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run::cmd_run(
                 protocol,
                 key,
+                aliases,
                 detect_port,
                 port_env,
                 tls_mode,
@@ -309,6 +314,7 @@ async fn run_server(
 
             let backend = router::Backend {
                 source: "static".to_string(),
+                owner: None,
                 container_name: route.key.clone(),
                 addrs: vec![addr],
                 port,
@@ -357,10 +363,7 @@ async fn run_server(
         {
             let mut table = routing_table.write().await;
             for ((protocol, key), backend) in discovery_table.entries() {
-                if table
-                    .lookup(*protocol, key)
-                    .is_some_and(|b| b.source == "static")
-                {
+                if table.lookup(*protocol, key).is_some() {
                     continue;
                 }
                 table.insert(*protocol, key.clone(), backend.clone());
@@ -403,10 +406,8 @@ async fn run_server(
                         let mut table = routing_table.write().await;
                         // Merge Docker routes, preserving static and discovery routes
                         for ((protocol, key), backend) in docker_table.entries() {
-                            if let Some(existing) = table.lookup(*protocol, key) {
-                                if existing.source == "static" || existing.source == "discovery" {
-                                    continue;
-                                }
+                            if table.lookup(*protocol, key).is_some() {
+                                continue;
                             }
                             table.insert(*protocol, key.clone(), backend.clone());
 

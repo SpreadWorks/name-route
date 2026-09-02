@@ -9,6 +9,9 @@ use crate::protocol::{ProtocolKind, TlsMode};
 #[derive(Debug, Clone)]
 pub struct Backend {
     pub source: String,
+    /// A run-scoped, client generated identifier.  Only `nameroute run` sets
+    /// this; it prevents an old process from removing a replacement route.
+    pub owner: Option<String>,
     pub container_name: String,
     pub addrs: Vec<IpAddr>,
     pub port: u16,
@@ -30,12 +33,17 @@ impl Backend {
 #[derive(Debug, Clone, Default)]
 pub struct RoutingTable {
     routes: HashMap<(ProtocolKind, String), Backend>,
+    // A cleanup may overtake a timed-out register request on a different TCP
+    // connection. Retain the owner tombstone for the daemon lifetime so every
+    // delayed register is a successful no-op instead of resurrecting a route.
+    cleaned_run_owners: std::collections::HashSet<String>,
 }
 
 impl RoutingTable {
     pub fn new() -> Self {
         Self {
             routes: HashMap::new(),
+            cleaned_run_owners: std::collections::HashSet::new(),
         }
     }
 
@@ -65,6 +73,34 @@ impl RoutingTable {
     pub fn remove(&mut self, protocol: ProtocolKind, key: &str) -> bool {
         let normalized_key = key.to_lowercase();
         self.routes.remove(&(protocol, normalized_key)).is_some()
+    }
+
+    /// Remove a route only when it is still owned by this run session.
+    pub fn remove_if_owner(&mut self, protocol: ProtocolKind, key: &str, owner: &str) -> bool {
+        let normalized_key = key.to_lowercase();
+        let route_key = (protocol, normalized_key);
+        if self
+            .routes
+            .get(&route_key)
+            .is_some_and(|backend| backend.owner.as_deref() == Some(owner))
+        {
+            self.routes.remove(&route_key);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn mark_run_owner_cleaned(&mut self, owner: String) {
+        // This is intentionally daemon-lifetime state. A bounded TTL/LRU can
+        // resurrect a route when a severely delayed request finally arrives.
+        // Owner UUIDs are small; memory grows with completed run invocations
+        // and is released on daemon restart.
+        self.cleaned_run_owners.insert(owner);
+    }
+
+    pub fn run_owner_was_cleaned(&self, owner: &str) -> bool {
+        self.cleaned_run_owners.contains(owner)
     }
 
     pub fn entries(&self) -> impl Iterator<Item = (&(ProtocolKind, String), &Backend)> {
@@ -98,6 +134,7 @@ mod tests {
     fn make_backend(name: &str) -> Backend {
         Backend {
             source: "docker".to_string(),
+            owner: None,
             container_name: name.to_string(),
             addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 2))],
             port: 5432,
@@ -166,6 +203,7 @@ mod tests {
             "app".to_string(),
             Backend {
                 source: "docker".to_string(),
+                owner: None,
                 container_name: "mysql".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 3))],
                 port: 3306,
@@ -192,6 +230,7 @@ mod tests {
             "myapp".to_string(),
             Backend {
                 source: "run".to_string(),
+                owner: None,
                 container_name: "myapp".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 3000,
@@ -234,6 +273,7 @@ mod tests {
             "static-app".to_string(),
             Backend {
                 source: "static".to_string(),
+                owner: None,
                 container_name: "static-app".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 3000,
@@ -246,6 +286,7 @@ mod tests {
             "docker-app".to_string(),
             Backend {
                 source: "docker".to_string(),
+                owner: None,
                 container_name: "docker-app".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 17, 0, 2))],
                 port: 80,
@@ -258,6 +299,7 @@ mod tests {
             "run-app".to_string(),
             Backend {
                 source: "run".to_string(),
+                owner: None,
                 container_name: "run-app".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 4000,
@@ -283,6 +325,7 @@ mod tests {
             "image.echub".to_string(),
             Backend {
                 source: "run".to_string(),
+                owner: None,
                 container_name: "image.echub".to_string(),
                 addrs: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
                 port: 5000,
